@@ -1,7 +1,12 @@
 import jwt
 import datetime
-from main import app
+from main import app, con
 from flask import request
+import random
+import smtplib
+from email.mime.text import MIMEText
+from flask_bcrypt import check_password_hash
+
 
 senha_secreta = app.config['SECRET_KEY']
 
@@ -27,8 +32,6 @@ def validar_senha(senha):
     if not (maiuscula and minuscula and numero and especial):
         return False
     return True
-
-
 
 def gerar_token(id_usuario, tipo):
     payload = {
@@ -58,3 +61,43 @@ def descobre_id_usuario():
         return int(payload['id_usuario'])
     except:
         return None
+
+def gerar_codigo():
+    return str(random.randint(100000, 999999))
+
+def enviando_email(destinatario, codigo):
+    user = 'gustavopontin02@gmail.com'
+    senha = 'oqwm swse unid odxl'
+
+    assunto = 'Código de recuperação de senha'
+    mensagem = f'Seu código de verificação é: {codigo}'
+
+    msg = MIMEText(mensagem)
+    msg['From'] = user
+    msg['To'] = destinatario
+    msg['Subject'] = assunto
+
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.starttls()
+    server.login(user, senha)
+    server.send_message(msg)
+    server.quit()
+
+def senha_repetida(id_usuario, nova_senha):
+    cursor = con.cursor()
+
+    cursor.execute("""
+        SELECT FIRST 3 senha_anterior
+        FROM historico_senha
+        WHERE id_usuario = ?
+        ORDER BY id_historico_senha DESC
+    """, (id_usuario,))
+
+    ultimas = cursor.fetchall()
+
+    cursor.close()
+
+    for senha in ultimas:
+        if check_password_hash(senha[0], nova_senha):
+            return True
+    return False

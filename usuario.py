@@ -1,10 +1,9 @@
-
 from flask import jsonify, request,make_response
 from main import app, con
-from funcao import validar_senha, gerar_token,descobre_tipo_usuario, descobre_id_usuario
+from funcao import validar_senha, gerar_token,descobre_tipo_usuario, descobre_id_usuario, gerar_codigo,enviando_email,senha_repetida
 from flask_bcrypt import generate_password_hash,check_password_hash
 import os
-import jwt
+import threading
 
 @app.route('/adicionar_usuario', methods=['POST'])
 def adicionar_usuario():
@@ -66,15 +65,18 @@ def adicionar_usuario():
     finally:
         cursor.close()
 @app.route('/login', methods=['POST'])
-def login():   # verifica a situaçao e  tentativa de senha do animal
+def login():
     dados = request.get_json()
     email = dados.get('email')
     senha = dados.get('senha')
     try:
         cursor = con.cursor()
 
-        cursor.execute("""SELECT ID_USUARIO, email, SENHA, TIPO FROM USUARIO WHERE email = ? """, (email,))
+        cursor.execute("""SELECT ID_USUARIO, email, SENHA, TIPO, SITUACAO, TENTATIVA FROM USUARIO WHERE email = ? """, (email,))
         dados_do_banco = cursor.fetchone()
+
+        situacao = dados_do_banco[4]
+        tentativa = dados_do_banco[5]
 
         if not dados_do_banco:
             return jsonify({'mensagem': 'Email ou senha invalida'}), 401
@@ -82,10 +84,27 @@ def login():   # verifica a situaçao e  tentativa de senha do animal
         tipo = dados_do_banco[3]
         id_usuario = dados_do_banco[0]
 
+
         if not check_password_hash(senha_escritanobanco, senha):
+            cursor.execute('update usuario set tentativa = tentativa + 1 where email = ?',
+                           (email, ))
+            if tentativa == 3 and tipo != 0:
+                cursor.execute('update usuario set situacao = 1 where email = ?',
+                               (email,))
+                con.commit()
+                return jsonify({'mensagem': 'usuario bloqueado entre em contato com o adm'})
+
+            con.commit()
             return jsonify({'mensagem': 'Email ou senha invalida'}), 401
 
+        if situacao == 1:
+            return jsonify({'mensagem': 'USUARIO BLOQUEADO'})
+
+
+
         token = gerar_token(id_usuario, tipo)
+        cursor.execute('update usuario set tentativa = 0 where email = ?',(email, ))
+        con.commit()
         resposta = make_response(jsonify({'mensagem': 'login com sucesso'}), 200)
         resposta.set_cookie('access_token', token,
                             httponly=True,
@@ -98,9 +117,6 @@ def login():   # verifica a situaçao e  tentativa de senha do animal
         return jsonify({'mensagem': 'Erro no login'}), 500
     finally:
         cursor.close()
-
-
-
 
 @app.route('/logout', methods=['POST'])
 def logout():
@@ -121,8 +137,9 @@ def edicao_usuario(id_usuario):
     id_usuario_logado = descobre_id_usuario()
     if tipo_usuario is None: # isso significa que a funcao returnou null entao, o usuario nao esta logado
         return jsonify({'mensagem': 'usuario nao logado'}), 403
-    if id_usuario_logado != id_usuario:
-        return jsonify({'mensagem': 'usuario nao pertence a essa conta'}), 403
+    if tipo_usuario != 0:
+        if id_usuario_logado != id_usuario:
+            return jsonify({'mensagem': 'usuario nao pertence a essa conta'}), 403
 
     cursor = con.cursor()
     cursor.execute(""" SELECT NOME, EMAIL, TELEFONE, CPF, SENHA TIPO
@@ -138,24 +155,16 @@ def edicao_usuario(id_usuario):
     email = request.form.get('email')
     telefone = request.form.get('telefone')
     cpf = request.form.get('cpf')
-    senha = request.form.get('senha')
-
     imagem = request.files.get('imagem')
-
-    validado = validar_senha(senha)
 
     try:
         cursor = con.cursor()
-        if not validado:
-            return jsonify({"error": "A senha nao esta nos nossos rigorossos padroes de segurança"}), 400
-        senha_hash = generate_password_hash(senha).decode('utf-8')
-
         cursor.execute("SELECT 1 FROM USUARIO WHERE EMAIL = ?", (email,))
         if cursor.fetchone():
             return jsonify({'mensagem': 'Email já cadastrado'}), 400
 
-        cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=?, senha=? where id_usuario = ?',
-                   (nome, email, cpf, telefone, senha_hash, id_usuario))
+        cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=? where id_usuario = ?',
+                   (nome, email, cpf, telefone, id_usuario))
         con.commit()
 
         if imagem:
@@ -175,26 +184,171 @@ def edicao_usuario(id_usuario):
 
 @app.route('/deletar_usuario/<int:id_usuario>', methods=['DELETE'])
 def deletar_usuario(id_usuario):
-
     tipo_usuario = descobre_tipo_usuario()
     id_usuario_logado = descobre_id_usuario()
 
     if tipo_usuario is None:  # isso significa que a funcao returnou null entao, o usuario nao esta logado
         return jsonify({'mensagem': 'usuario nao logado'}), 403
-    if id_usuario_logado != id_usuario:
-        return jsonify({'mensagem': 'usuario nao pertence a essa conta'}), 403
-
+    if tipo_usuario !=0:
+        if id_usuario_logado != id_usuario:
+            return jsonify({'mensagem': 'usuario nao pertence a essa conta'}), 403
     try:
         cursor = con.cursor()
         cursor.execute('select 1 from usuario where id_usuario = ?', (id_usuario,))
         if not cursor.fetchone():
-            return jsonify({'mensagem': 'usuario nao encontrado'})
+            return jsonify({'mensagem': 'Usuário nao encontrado'})
         if cursor.fetchone():
             cursor.execute('delete from usuario where id_usuario = ?', (id_usuario,))
             con.commit()
-            return jsonify({'mensagem': 'usuario deletado com sucesso'})
+            return jsonify({'mensagem': 'Usuário deletado com sucesso'})
 
     except Exception as e:
         return jsonify({'mensagem': 'erro ao deletar'})
+    finally:
+        cursor.close()
+
+@app.route('/esqueci_senha', methods=['POST'])
+def esqueci_senha():
+    dados = request.get_json()
+    email = dados.get('email')
+
+    try:
+        cursor = con.cursor()
+
+        cursor.execute("SELECT id_usuario FROM usuario WHERE email = ?", (email,))
+        usuario = cursor.fetchone()
+
+        if not usuario:
+            return jsonify({'mensagem': 'Email não encontrado'}), 404
+
+        id_usuario = usuario[0]
+        codigo = gerar_codigo()
+
+        cursor.execute("DELETE FROM recuperacao_senha WHERE id_usuario = ?", (id_usuario,))
+
+        cursor.execute("""
+            INSERT INTO recuperacao_senha (id_usuario, codigo)
+            VALUES (?, ?)
+        """, (id_usuario, codigo))
+
+        con.commit()
+
+        thread = threading.Thread(
+            target=enviando_email,
+            args=(email, codigo)
+        )
+        thread.start()
+
+        return jsonify({'mensagem': 'Código enviado com sucesso'}), 200
+
+    except:
+        return jsonify({'mensagem': 'Erro ao enviar código'}), 500
+
+    finally:
+        cursor.close()
+@app.route('/verificar_codigo', methods=['POST'])
+def verificar_codigo():
+    dados = request.get_json()
+    email = dados.get('email')
+    codigo = int(dados.get('codigo'))
+
+    try:
+        cursor = con.cursor()
+        cursor.execute("""
+            SELECT r.codigo
+            FROM usuario u
+            JOIN recuperacao_senha r ON u.id_usuario = r.id_usuario
+            WHERE u.email = ?
+        """, (email,))
+
+        resultado = cursor.fetchone()
+
+        if not resultado:
+            return jsonify({'mensagem': 'Código inválido'}), 400
+
+        codigo_banco = int(resultado[0])
+
+        if codigo != codigo_banco:
+            return jsonify({'mensagem': 'Código inválido'}), 400
+
+        return jsonify({'mensagem': 'Código válido'}), 200
+
+    except:
+        return jsonify({'mensagem': 'Erro ao verificar código'}), 500
+
+    finally:
+        cursor.close()
+@app.route('/trocar_senha', methods=['POST'])
+def trocar_senha():
+    dados = request.get_json()
+    email = dados.get('email')
+    codigo = dados.get('codigo')
+    nova_senha = dados.get('nova_senha')
+    confirmar_senha = dados.get('confirmar_senha')
+    valida = validar_senha(nova_senha)
+
+    if nova_senha != confirmar_senha:
+        return jsonify({'mensagem': 'Senhas não coincidem'}), 400
+    if not valida:
+        return jsonify({'mensagem': 'Senhas fraca'}), 400
+
+    try:
+        cursor = con.cursor()
+
+        cursor.execute("""
+            SELECT u.id_usuario, u.senha
+            FROM usuario u
+            JOIN recuperacao_senha r ON u.id_usuario = r.id_usuario
+            WHERE u.email = ? AND r.codigo = ?
+        """, (email, codigo))
+
+        usuario = cursor.fetchone()
+
+        if not usuario:
+            return jsonify({'mensagem': 'Código inválido'}), 400
+
+        id_usuario = usuario[0]
+        senha_atual = usuario[1]
+
+        if senha_repetida(id_usuario, nova_senha):
+            return jsonify({'mensagem': 'Não pode repetir as últimas 3 senhas'}), 400
+
+        nova_senha_hash = generate_password_hash(nova_senha).decode('utf-8')
+
+        cursor.execute("""
+            INSERT INTO historico_senha (id_usuario, senha_anterior)
+            VALUES (?, ?)
+        """, (id_usuario, senha_atual))
+
+        cursor.execute("""
+            UPDATE usuario
+            SET senha = ?
+            WHERE id_usuario = ?
+        """, (nova_senha_hash, id_usuario))
+
+        cursor.execute("""
+            DELETE FROM recuperacao_senha
+            WHERE id_usuario = ?
+        """, (id_usuario,))
+
+        con.commit()
+        cursor.execute("""
+            DELETE FROM historico_senha
+            WHERE id_usuario = ?
+            AND id_historico_senha NOT IN (
+                SELECT FIRST 3 id_historico_senha
+                FROM historico_senha
+                WHERE id_usuario = ?
+                ORDER BY id_historico_senha DESC
+            )
+        """, (id_usuario, id_usuario))
+
+        con.commit()
+
+        return jsonify({'mensagem': 'Senha alterada com sucesso'}), 200
+
+    except:
+        return jsonify({'mensagem': 'Erro ao trocar senha'}), 500
+
     finally:
         cursor.close()
