@@ -4,8 +4,10 @@ from main import app, con
 from flask import request
 import random
 import smtplib
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from flask_bcrypt import check_password_hash
+
 
 
 senha_secreta = app.config['SECRET_KEY']
@@ -65,23 +67,28 @@ def descobre_id_usuario():
 def gerar_codigo():
     return str(random.randint(100000, 999999))
 
-def enviando_email(destinatario, codigo):
-    user = 'gustavopontin02@gmail.com'
-    senha = 'oqwm swse unid odxl'
 
-    assunto = 'Código de recuperação de senha'
-    mensagem = f'Seu código de verificação é: {codigo}'
+def enviando_email(destinatario, html):
+    user_email = 'webcar89@gmail.com'
+    senha = 'dbgu pqdq htkb bcds'
 
-    msg = MIMEText(mensagem)
-    msg['From'] = user
-    msg['To'] = destinatario
-    msg['Subject'] = assunto
+    try:
+        msg = MIMEMultipart("alternative")
+        msg['Subject'] = "Código de Verificação - WebCar"
+        msg['From'] = user_email
+        msg['To'] = destinatario
 
-    server = smtplib.SMTP('smtp.gmail.com', 587)
-    server.starttls()
-    server.login(user, senha)
-    server.send_message(msg)
-    server.quit()
+        msg.attach(MIMEText(html, "html"))
+
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
+        server.login(user_email, senha)
+        server.send_message(msg)
+        server.quit()
+
+        print("EMAIL ENVIADO")
+
+    except Exception as e:
+        print("ERRO:", e)
 
 def senha_repetida(id_usuario, nova_senha):
     cursor = con.cursor()

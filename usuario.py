@@ -1,9 +1,10 @@
-from flask import jsonify, request,make_response
+from flask import jsonify, request, make_response,  render_template
 from main import app, con
 from funcao import validar_senha, gerar_token,descobre_tipo_usuario, descobre_id_usuario, gerar_codigo,enviando_email,senha_repetida
 from flask_bcrypt import generate_password_hash,check_password_hash
 import os
 import threading
+
 
 @app.route('/adicionar_usuario', methods=['POST'])
 def adicionar_usuario():
@@ -12,17 +13,20 @@ def adicionar_usuario():
     telefone = request.form.get('telefone')
     cpf = request.form.get('cpf')
     senha = request.form.get('senha')
-    tipo = int(request.form.get('tipo'))
+    tipo = request.form.get('tipo')
     imagem = request.files.get('imagem')
 
     validado = validar_senha(senha)
+
+    if not nome or not nome.strip():
+        return jsonify({'mensagem': 'Nome é obrigatório'}), 400
 
     if not validado:
         return jsonify({'mensagem': 'Senha fora do padrão'}), 400
 
     tipo_usuario = descobre_tipo_usuario()
 
-    if tipo == 0 or tipo == 1 :
+    if tipo == "0" or tipo == "1" :
         if tipo_usuario is None: # isso significa que a funcao returnou null entao, o usuario nao esta logado
             return jsonify({'mensagem': 'usuario nao logado'}), 403
 
@@ -36,11 +40,15 @@ def adicionar_usuario():
         if cursor.fetchone():
             return jsonify({'mensagem': 'Email já cadastrado'}), 400
 
+        cursor.execute("SELECT 1 FROM USUARIO WHERE cpf = ?", (cpf,))
+        if cursor.fetchone():
+            return jsonify({'mensagem': 'CPF já cadastrado'}), 400
+
         senha_hash = generate_password_hash(senha).decode('utf-8')
 
         cursor.execute("""
             INSERT INTO USUARIO (NOME, EMAIL, TELEFONE, CPF, SENHA, TIPO,SITUACAO, TENTATIVA)
-            VALUES (?, ?, ?, ?, ?, ?, 2, 0)
+            VALUES (?, ?, ?, ?, ?, ?, 2, 1)
             RETURNING ID_USUARIO
         """, (nome, email, telefone, cpf, senha_hash, tipo))
 
@@ -55,18 +63,25 @@ def adicionar_usuario():
 
         con.commit()
 
-        thread = threading.Thread(
-            target=enviando_email,
-            args=(email, codigo)
-        )
-        thread.start()
-
         if imagem:
             pasta = os.path.join(app.config['UPLOAD_FOLDER'], "Usuarios")
             os.makedirs(pasta, exist_ok=True)
 
             caminho = os.path.join(pasta, f"{id_usuario}.jpg")
             imagem.save(caminho)
+
+        print(email)
+        print(codigo)
+        html = render_template('codigo_verificacao.html', codigo=codigo)
+
+        try:
+            thread = threading.Thread(
+                target=enviando_email,
+                args=(email, html)
+            )
+            thread.start()
+        except Exception as e:
+            return jsonify({"messagem": f"Erro ao enviar email: {e}"}), 500
 
         return jsonify({
             'mensagem': 'Usuário cadastrado com sucesso',
@@ -78,6 +93,9 @@ def adicionar_usuario():
 
     finally:
         cursor.close()
+
+
+
 @app.route('/verificar_email', methods=['POST'])
 def verificar_email():
     dados = request.get_json()
@@ -169,7 +187,7 @@ def login():
 
 
         token = gerar_token(id_usuario, tipo)
-        cursor.execute('update usuario set tentativa = 0 where email = ?',(email, ))
+        cursor.execute('update usuario set tentativa = 1 where email = ?',(email, ))
         con.commit()
         resposta = make_response(jsonify({'mensagem': 'login com sucesso'}), 200)
         resposta.set_cookie('access_token', token,
@@ -229,6 +247,10 @@ def edicao_usuario(id_usuario):
         if cursor.fetchone():
             return jsonify({'mensagem': 'Email já cadastrado'}), 400
 
+        cursor.execute("SELECT 1 FROM USUARIO WHERE cpf = ? AND ID_USUARIO != ?", (cpf, id_usuario))
+        if cursor.fetchone():
+            return jsonify({'mensagem': 'cpf já cadastrado'}), 400
+
 
         cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=? where id_usuario = ?',
                    (nome, email, cpf, telefone, id_usuario))
@@ -251,14 +273,14 @@ def edicao_usuario(id_usuario):
 
 @app.route('/deletar_usuario/<int:id_usuario>', methods=['DELETE'])
 def deletar_usuario(id_usuario):
+
     tipo_usuario = descobre_tipo_usuario()
-    id_usuario_logado = descobre_id_usuario()
 
     if tipo_usuario is None:  # isso significa que a funcao returnou null entao, o usuario nao esta logado
         return jsonify({'mensagem': 'usuario nao logado'}), 403
+
     if tipo_usuario !=0:
-        if id_usuario_logado != id_usuario:
-            return jsonify({'mensagem': 'usuario nao pertence a essa conta'}), 403
+        return jsonify({'mensagem': 'Apenas ADM Pode deletar'})
     try:
         cursor = con.cursor()
         cursor.execute('select 1 from usuario where id_usuario = ?', (id_usuario,))
@@ -313,6 +335,7 @@ def esqueci_senha():
 
     finally:
         cursor.close()
+
 @app.route('/verificar_codigo', methods=['POST'])
 def verificar_codigo():
     dados = request.get_json()
@@ -479,3 +502,5 @@ def buscar_usuario():
 
     finally:
         cursor.close()
+
+
