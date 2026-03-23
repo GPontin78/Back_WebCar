@@ -8,7 +8,7 @@ import threading
 @app.route('/adicionar_usuario', methods=['POST'])
 def adicionar_usuario():
     nome = request.form.get('nome')
-    email = request.form.get('email')
+    email = request.form.get('email').lower()
     telefone = request.form.get('telefone')
     cpf = request.form.get('cpf')
     senha = request.form.get('senha')
@@ -40,12 +40,26 @@ def adicionar_usuario():
 
         cursor.execute("""
             INSERT INTO USUARIO (NOME, EMAIL, TELEFONE, CPF, SENHA, TIPO,SITUACAO, TENTATIVA)
-            VALUES (?, ?, ?, ?, ?, ?, 0, 0)
+            VALUES (?, ?, ?, ?, ?, ?, 2, 0)
             RETURNING ID_USUARIO
         """, (nome, email, telefone, cpf, senha_hash, tipo))
 
         id_usuario = cursor.fetchone()[0]
         con.commit()
+        codigo = gerar_codigo()
+
+        cursor.execute("""
+                       INSERT INTO recuperacao_senha (id_usuario, codigo)
+                       VALUES (?, ?)
+                       """, (id_usuario, codigo))
+
+        con.commit()
+
+        thread = threading.Thread(
+            target=enviando_email,
+            args=(email, codigo)
+        )
+        thread.start()
 
         if imagem:
             pasta = os.path.join(app.config['UPLOAD_FOLDER'], "Usuarios")
@@ -64,10 +78,58 @@ def adicionar_usuario():
 
     finally:
         cursor.close()
+@app.route('/verificar_email', methods=['POST'])
+def verificar_email():
+    dados = request.get_json()
+    email = dados.get('email')
+    codigo = int(dados.get('codigo'))
+
+    try:
+        cursor = con.cursor()
+
+        cursor.execute("""
+            SELECT u.id_usuario, r.codigo
+            FROM usuario u
+            INNER JOIN recuperacao_senha r ON u.id_usuario = r.id_usuario
+            WHERE u.email = ?
+        """, (email,))
+
+        resultado = cursor.fetchone()
+
+        if not resultado:
+            return jsonify({'mensagem': 'Código inválido'}), 400
+
+        id_usuario = resultado[0]
+        codigo_banco = int(resultado[1])
+
+        if codigo != codigo_banco:
+            return jsonify({'mensagem': 'Código inválido'}), 400
+
+        cursor.execute("""
+            UPDATE usuario
+            SET situacao = 0
+            WHERE id_usuario = ?
+        """, (id_usuario,))
+
+        cursor.execute("""
+            DELETE FROM recuperacao_senha
+            WHERE id_usuario = ?
+        """, (id_usuario,))
+
+        con.commit()
+
+        return jsonify({'mensagem': 'Email verificado com sucesso'}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao verificar email: {e}'}), 500
+
+    finally:
+        cursor.close()
+
 @app.route('/login', methods=['POST'])
 def login():
     dados = request.get_json()
-    email = dados.get('email')
+    email = dados.get('email').lower()
     senha = dados.get('senha')
     try:
         cursor = con.cursor()
@@ -75,11 +137,15 @@ def login():
         cursor.execute("""SELECT ID_USUARIO, email, SENHA, TIPO, SITUACAO, TENTATIVA FROM USUARIO WHERE email = ? """, (email,))
         dados_do_banco = cursor.fetchone()
 
+        if not dados_do_banco:
+            return jsonify({'mensagem': 'Email ou senha invalida'}), 401
+
         situacao = dados_do_banco[4]
         tentativa = dados_do_banco[5]
 
-        if not dados_do_banco:
-            return jsonify({'mensagem': 'Email ou senha invalida'}), 401
+        if situacao == 2:
+            return jsonify({'mensagem': 'Verifique seu email antes de logar'}), 403
+
         senha_escritanobanco = dados_do_banco[2]
         tipo = dados_do_banco[3]
         id_usuario = dados_do_banco[0]
@@ -159,9 +225,10 @@ def edicao_usuario(id_usuario):
 
     try:
         cursor = con.cursor()
-        cursor.execute("SELECT 1 FROM USUARIO WHERE EMAIL = ?", (email,))
+        cursor.execute("SELECT 1 FROM USUARIO WHERE EMAIL = ? AND ID_USUARIO != ?", (email, id_usuario))
         if cursor.fetchone():
             return jsonify({'mensagem': 'Email já cadastrado'}), 400
+
 
         cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=? where id_usuario = ?',
                    (nome, email, cpf, telefone, id_usuario))
@@ -197,10 +264,10 @@ def deletar_usuario(id_usuario):
         cursor.execute('select 1 from usuario where id_usuario = ?', (id_usuario,))
         if not cursor.fetchone():
             return jsonify({'mensagem': 'Usuário nao encontrado'})
-        if cursor.fetchone():
-            cursor.execute('delete from usuario where id_usuario = ?', (id_usuario,))
-            con.commit()
-            return jsonify({'mensagem': 'Usuário deletado com sucesso'})
+
+        cursor.execute('delete from usuario where id_usuario = ?', (id_usuario,))
+        con.commit()
+        return jsonify({'mensagem': 'Usuário deletado com sucesso'})
 
     except Exception as e:
         return jsonify({'mensagem': 'erro ao deletar'})
@@ -257,7 +324,7 @@ def verificar_codigo():
         cursor.execute("""
             SELECT r.codigo
             FROM usuario u
-            JOIN recuperacao_senha r ON u.id_usuario = r.id_usuario
+            INNER JOIN recuperacao_senha r ON u.id_usuario = r.id_usuario
             WHERE u.email = ?
         """, (email,))
 
@@ -298,7 +365,7 @@ def trocar_senha():
         cursor.execute("""
             SELECT u.id_usuario, u.senha
             FROM usuario u
-            JOIN recuperacao_senha r ON u.id_usuario = r.id_usuario
+            INNER JOIN recuperacao_senha r ON u.id_usuario = r.id_usuario
             WHERE u.email = ? AND r.codigo = ?
         """, (email, codigo))
 
@@ -349,6 +416,66 @@ def trocar_senha():
 
     except:
         return jsonify({'mensagem': 'Erro ao trocar senha'}), 500
+
+    finally:
+        cursor.close()
+
+@app.route('/buscar_usuario', methods=['POST'])
+def buscar_usuario():
+    dados = request.get_json()
+    nome = dados.get('nome')
+    id_usuario = dados.get('id_usuario')
+
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario is None:
+        return jsonify({'mensagem': 'usuario nao logado'}), 403
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas ADM pode acessar'}), 403
+
+    try:
+        cursor = con.cursor()
+        lista_usuarios = []
+
+        if nome:
+            cursor.execute("""
+                SELECT id_usuario, nome, email, cpf, telefone 
+                FROM usuario 
+                WHERE nome LIKE ?
+            """, (f'%{nome}%',))
+
+        elif id_usuario:
+            cursor.execute("""
+                SELECT id_usuario, nome, email, cpf, telefone 
+                FROM usuario 
+                WHERE id_usuario = ?
+            """, (id_usuario,))
+
+        else:
+            cursor.execute("""
+                SELECT id_usuario, nome, email, cpf, telefone 
+                FROM usuario
+            """)
+
+        usuarios = cursor.fetchall()
+
+        for usuario in usuarios:
+            lista_usuarios.append({
+                'id_usuario': usuario[0],
+                'nome': usuario[1],
+                'email': usuario[2],
+                'cpf': usuario[3],
+                'telefone': usuario[4]
+            })
+
+        if not lista_usuarios:
+            return jsonify({'mensagem': 'Usuário não encontrado'}), 404
+
+        return jsonify({'usuarios': lista_usuarios}), 200
+
+    except:
+        return jsonify({'mensagem': 'Erro ao listar usuários'}), 500
 
     finally:
         cursor.close()
