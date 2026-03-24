@@ -257,7 +257,7 @@ def edicao_usuario(id_usuario):
 
 
         cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=?, situacao=? where id_usuario = ?',
-                   (nome, email, cpf, telefone, id_usuario, situacao))
+                   (nome, email, cpf, telefone,situacao, id_usuario))
         con.commit()
 
         if imagem:
