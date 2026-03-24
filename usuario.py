@@ -75,8 +75,6 @@ def adicionar_usuario():
             caminho = os.path.join(pasta, f"{id_usuario}.jpg")
             imagem.save(caminho)
 
-        print(email)
-        print(codigo)
         html = render_template('codigo_verificacao.html', codigo=codigo)
 
         try:
@@ -326,10 +324,11 @@ def esqueci_senha():
         """, (id_usuario, codigo))
 
         con.commit()
+        html = render_template('codigo_verificacao.html', codigo=codigo)
 
         thread = threading.Thread(
             target=enviando_email,
-            args=(email, codigo)
+            args=(email, html)
         )
         thread.start()
 
