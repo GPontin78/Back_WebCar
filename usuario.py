@@ -229,7 +229,7 @@ def edicao_usuario(id_usuario):
             return jsonify({'mensagem': 'usuario nao pertence a essa conta'}), 403
 
     cursor = con.cursor()
-    cursor.execute(""" SELECT NOME, EMAIL, TELEFONE, CPF, SENHA TIPO
+    cursor.execute(""" SELECT NOME, EMAIL, TELEFONE, CPF, SENHA, TIPO
                                             FROM USUARIO
                                     WHERE ID_USUARIO = ? """, (id_usuario,))
     existe_usuario = cursor.fetchone()
@@ -242,6 +242,7 @@ def edicao_usuario(id_usuario):
     email = request.form.get('email')
     telefone = request.form.get('telefone')
     cpf = request.form.get('cpf')
+    situacao= request.form.get('situacao')
     imagem = request.files.get('imagem')
 
     try:
@@ -255,8 +256,8 @@ def edicao_usuario(id_usuario):
             return jsonify({'mensagem': 'cpf já cadastrado'}), 400
 
 
-        cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=? where id_usuario = ?',
-                   (nome, email, cpf, telefone, id_usuario))
+        cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=?, situacao=? where id_usuario = ?',
+                   (nome, email, cpf, telefone, id_usuario, situacao))
         con.commit()
 
         if imagem:
@@ -295,7 +296,7 @@ def deletar_usuario(id_usuario):
         return jsonify({'mensagem': 'Usuário deletado com sucesso'})
 
     except Exception as e:
-        return jsonify({'mensagem': 'erro ao deletar'})
+        return jsonify({'mensagem': 'erro ao deletar usuario em mais de uma tabela'})
     finally:
         cursor.close()
 
