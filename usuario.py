@@ -54,6 +54,11 @@ def adicionar_usuario():
 
         id_usuario = cursor.fetchone()[0]
         con.commit()
+        cursor.execute("""
+        INSERT INTO historico_senha(id_usuario, senha_anterior)
+                       VALUES (?,?)""",(id_usuario, senha_hash))
+        con.commit()
+
         codigo = gerar_codigo()
 
         cursor.execute("""
