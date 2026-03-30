@@ -242,7 +242,6 @@ def edicao_usuario(id_usuario):
     email = request.form.get('email')
     telefone = request.form.get('telefone')
     cpf = request.form.get('cpf')
-    situacao= request.form.get('situacao')
     imagem = request.files.get('imagem')
 
     try:
@@ -256,8 +255,8 @@ def edicao_usuario(id_usuario):
             return jsonify({'mensagem': 'cpf já cadastrado'}), 400
 
 
-        cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=?, situacao=? where id_usuario = ?',
-                   (nome, email, cpf, telefone,situacao, id_usuario))
+        cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=? where id_usuario = ?',
+                   (nome, email, cpf, telefone, id_usuario))
         con.commit()
 
         if imagem:
@@ -509,3 +508,39 @@ def buscar_usuario():
         cursor.close()
 
 
+@app.route('/alterar_situacao/<int:id_usuario>', methods=['PUT'])
+def alterar_situacao(id_usuario):
+    tipo_usuario = descobre_tipo_usuario()
+    if tipo_usuario is None:
+        return jsonify({'mensagem': 'usuario nao logado'}), 403
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'sem permissao, apenas adm pode mudar a situação'}), 403
+
+    try:
+        situacao = request.form.get('situacao')
+
+        if situacao is None:
+            return jsonify({'mensagem': 'situacao obrigatoria'}), 400
+
+        try:
+            situacao = int(situacao)
+        except:
+            return jsonify({'mensagem': 'situacao deve ser 0 ou 1'}), 400
+
+        # Validação: só 0 ou 1
+        if situacao != 1 and situacao != 0:
+            return jsonify({'mensagem': 'situacao invalida (use 0 ou 1)'}), 400
+
+        cursor = con.cursor()
+
+        cursor.execute(
+            'UPDATE usuario SET situacao = ? WHERE id_usuario = ?',
+            (situacao, id_usuario)
+        )
+
+        con.commit()
+        return jsonify({'mensagem': 'situacao atualizada com sucesso'}), 200
+
+    except Exception as e:
+        return jsonify({'erro no mudar situação'}), 500
