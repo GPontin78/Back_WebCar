@@ -185,7 +185,8 @@ def deletar_veiculo(id_veiculo):
 @app.route('/buscar_veiculo', methods=['POST'])
 def buscar_veiculo():
     dados = request.get_json()
-    modelo = dados.get('modelo').upper()
+    modelo = dados.get('modelo')
+    marca = dados.get('marca')
     id_veiculo = dados.get('id_veiculo')
 
     tipo_usuario = descobre_tipo_usuario()
@@ -201,6 +202,7 @@ def buscar_veiculo():
         lista_veiculos = []
 
         if modelo:
+            modelo = modelo.upper()
             cursor.execute("""
                 SELECT MARCA, MODELO, ANO_FABRICACAO, ANO_MODELO, PLACA, KM, COR, CAMBIO,
                COMBUSTIVEL, RENAVAM, PRECO_CUSTO, PRECO_VENDA, STATUS, DOCUMENTACAO
@@ -208,6 +210,14 @@ def buscar_veiculo():
                 WHERE upper(modelo) LIKE ?
             """, (f'%{modelo}%',))
 
+        elif marca:
+            marca = marca.upper()
+            cursor.execute("""
+                SELECT MARCA, MODELO, ANO_FABRICACAO, ANO_MODELO, PLACA, KM, COR, CAMBIO,
+               COMBUSTIVEL, RENAVAM, PRECO_CUSTO, PRECO_VENDA, STATUS, DOCUMENTACAO
+                FROM veiculo 
+                WHERE upper(marca) LIKE ?
+            """, (f'%{marca}%',))
 
         elif id_veiculo:
             cursor.execute("""

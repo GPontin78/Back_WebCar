@@ -192,18 +192,26 @@ def login():
         if situacao == 1:
             return jsonify({'mensagem': 'USUARIO BLOQUEADO'})
 
+        cursor.execute("""select id_usuario, nome,email, tipo
+         from usuario where email = ?""", (email,))
+        resultado_diferente = cursor.fetchone()
 
 
         token = gerar_token(id_usuario, tipo)
         cursor.execute('update usuario set tentativa = 1 where email = ?',(email, ))
         con.commit()
-        resposta = make_response(jsonify({'mensagem': 'login com sucesso'}), 200)
+        resposta = make_response(jsonify({'mensagem': 'login com sucesso', 'usuario': {
+            'id_usuario':resultado_diferente[0],
+            'nome':resultado_diferente[1],
+            'email':resultado_diferente[2],
+            'tipo': resultado_diferente[3]}}), 200)
+
         resposta.set_cookie('access_token', token,
                             httponly=True,
                             secure=False,
                             samesite='Lax',
                             path="/",
-                            max_age=3600)
+                            max_age=600)
         return resposta
     except Exception as e:
         return jsonify({'mensagem': 'Erro no login'}), 500
@@ -467,7 +475,7 @@ def trocar_senha():
 @app.route('/buscar_usuario', methods=['POST'])
 def buscar_usuario():
     dados = request.get_json()
-    nome = dados.get('nome').upper()
+    nome = dados.get('nome')
     id_usuario = dados.get('id_usuario')
 
     tipo_usuario = descobre_tipo_usuario()
@@ -483,6 +491,7 @@ def buscar_usuario():
         lista_usuarios = []
 
         if nome:
+            nome = nome.upper()
             cursor.execute("""
                 SELECT id_usuario, nome, email, cpf, telefone 
                 FROM usuario 
