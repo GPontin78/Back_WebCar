@@ -14,6 +14,7 @@ def adicionar_usuario():
     cpf = request.form.get('cpf')
     senha = request.form.get('senha')
     tipo = request.form.get('tipo')
+    confirma = request.form.get('confirma')
     imagem = request.files.get('imagem')
 
     validado = validar_senha(senha)
@@ -23,6 +24,10 @@ def adicionar_usuario():
 
     if not validado:
         return jsonify({'mensagem': 'Senha fora do padrão'}), 400
+
+    if confirma != senha:
+        return jsonify({'mensagem': 'Senhas não coincidem'}), 400
+
 
     tipo_usuario = descobre_tipo_usuario()
 
@@ -152,42 +157,32 @@ def login():
     dados = request.get_json()
     email = dados.get('email').lower()
     senha = dados.get('senha')
-
     try:
         cursor = con.cursor()
 
-        cursor.execute("""
-            SELECT ID_USUARIO, NOME, EMAIL, SENHA, TIPO, SITUACAO, TENTATIVA
-            FROM USUARIO
-            WHERE EMAIL = ?
-        """, (email,))
+        cursor.execute("""SELECT ID_USUARIO, email, SENHA, TIPO, SITUACAO, TENTATIVA FROM USUARIO WHERE email = ? """, (email,))
         dados_do_banco = cursor.fetchone()
 
         if not dados_do_banco:
             return jsonify({'mensagem': 'Email ou senha invalida'}), 401
 
-        id_usuario = dados_do_banco[0]
-        nome = dados_do_banco[1]
-        email_banco = dados_do_banco[2]
-        senha_escritanobanco = dados_do_banco[3]
-        tipo = dados_do_banco[4]
-        situacao = dados_do_banco[5]
-        tentativa = dados_do_banco[6]
+        situacao = dados_do_banco[4]
+        tentativa = dados_do_banco[5]
 
         if situacao == 2:
             return jsonify({'mensagem': 'Verifique seu email antes de logar'}), 403
 
-        if not check_password_hash(senha_escritanobanco, senha):
-            cursor.execute(
-                'UPDATE USUARIO SET TENTATIVA = TENTATIVA + 1 WHERE EMAIL = ?',
-                (email,)
-            )
+        senha_escritanobanco = dados_do_banco[2]
+        tipo = dados_do_banco[3]
+        id_usuario = dados_do_banco[0]
 
+
+        if not check_password_hash(senha_escritanobanco, senha):
+            cursor.execute('update usuario set tentativa = tentativa + 1 where email = ?',
+                           (email, ))
             if tentativa == 3 and tipo != 0:
-                cursor.execute(
-                    'UPDATE USUARIO SET SITUACAO = 1 WHERE EMAIL = ?',
-                    (email,)
-                )
+                cursor.execute('update usuario set situacao = 1 where email = ?',
+                               (email,))
                 con.commit()
                 return jsonify({'mensagem': 'usuario bloqueado entre em contato com o adm'})
 
@@ -197,38 +192,24 @@ def login():
         if situacao == 1:
             return jsonify({'mensagem': 'USUARIO BLOQUEADO'})
 
+
+
         token = gerar_token(id_usuario, tipo)
-
-        cursor.execute('UPDATE USUARIO SET TENTATIVA = 1 WHERE EMAIL = ?', (email,))
+        cursor.execute('update usuario set tentativa = 1 where email = ?',(email, ))
         con.commit()
-
-        resposta = make_response(jsonify({
-            'mensagem': 'login com sucesso',
-            'usuario': {
-                'id': id_usuario,
-                'nome': nome,
-                'email': email_banco,
-                'tipo': tipo
-            }
-        }), 200)
-
-        resposta.set_cookie(
-            'access_token',
-            token,
-            httponly=True,
-            secure=False,
-            samesite='Lax',
-            path="/",
-            max_age=3600
-        )
-
+        resposta = make_response(jsonify({'mensagem': 'login com sucesso'}), 200)
+        resposta.set_cookie('access_token', token,
+                            httponly=True,
+                            secure=False,
+                            samesite='Lax',
+                            path="/",
+                            max_age=3600)
         return resposta
-
     except Exception as e:
-        return jsonify({'mensagem': f'Erro no login: {e}'}), 500
-
+        return jsonify({'mensagem': 'Erro no login'}), 500
     finally:
         cursor.close()
+
 @app.route('/logout', methods=['POST'])
 def logout():
     resposta = make_response(jsonify({'mensagem': 'Logout realizado com sucesso'}), 200)
@@ -252,6 +233,7 @@ def edicao_usuario(id_usuario):
         if id_usuario_logado != id_usuario:
             return jsonify({'mensagem': 'usuario nao pertence a essa conta'}), 403
 
+
     cursor = con.cursor()
     cursor.execute(""" SELECT NOME, EMAIL, TELEFONE, CPF, SENHA, TIPO
                                             FROM USUARIO
@@ -265,8 +247,11 @@ def edicao_usuario(id_usuario):
     nome = request.form.get('nome')
     email = request.form.get('email')
     telefone = request.form.get('telefone')
+    senha = request.form.get('senha')
     cpf = request.form.get('cpf')
     imagem = request.files.get('imagem')
+
+    validado = validar_senha(senha)
 
     try:
         cursor = con.cursor()
@@ -277,10 +262,18 @@ def edicao_usuario(id_usuario):
         cursor.execute("SELECT 1 FROM USUARIO WHERE cpf = ? AND ID_USUARIO != ?", (cpf, id_usuario))
         if cursor.fetchone():
             return jsonify({'mensagem': 'cpf já cadastrado'}), 400
+        if not validado:
+            return jsonify({'mensagem': 'Senha fora do padrão'}), 400
 
+        senha_hash = generate_password_hash(senha).decode('utf-8')
 
-        cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=? where id_usuario = ?',
-                   (nome, email, cpf, telefone, id_usuario))
+        cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=?, senha=? where id_usuario = ?',
+                   (nome, email, cpf, telefone,senha_hash ,id_usuario))
+
+        cursor.execute("""
+        INSERT INTO historico_senha(id_usuario, senha_anterior)
+                       VALUES (?,?)""",(id_usuario, senha_hash))
+        con.commit()
         con.commit()
 
         if imagem:
@@ -474,7 +467,7 @@ def trocar_senha():
 @app.route('/buscar_usuario', methods=['POST'])
 def buscar_usuario():
     dados = request.get_json()
-    nome = dados.get('nome')
+    nome = dados.get('nome').upper()
     id_usuario = dados.get('id_usuario')
 
     tipo_usuario = descobre_tipo_usuario()
@@ -493,8 +486,9 @@ def buscar_usuario():
             cursor.execute("""
                 SELECT id_usuario, nome, email, cpf, telefone 
                 FROM usuario 
-                WHERE nome LIKE ?
+                WHERE upper(nome) LIKE ?
             """, (f'%{nome}%',))
+
 
         elif id_usuario:
             cursor.execute("""
@@ -541,9 +535,17 @@ def alterar_situacao(id_usuario):
     if tipo_usuario != 0:
         return jsonify({'mensagem': 'sem permissao, apenas adm pode mudar a situação'}), 403
 
-    try:
-        situacao = request.form.get('situacao')
 
+    try:
+
+        situacao = request.form.get('situacao')
+        print(situacao)
+        cursor = con.cursor()
+        cursor.execute("select situacao from usuario where id_usuario = ?",
+                       (id_usuario,))
+        logado = cursor.fetchone()
+        if logado is None:
+            return jsonify({'mensagem': 'id nao encontrado'}), 404
         if situacao is None:
             return jsonify({'mensagem': 'situacao obrigatoria'}), 400
 
@@ -559,9 +561,10 @@ def alterar_situacao(id_usuario):
         cursor = con.cursor()
 
         cursor.execute(
-            'UPDATE usuario SET situacao = ? WHERE id_usuario = ?',
-            (situacao, id_usuario)
+            'UPDATE usuario SET situacao = ?, tentativa= ? WHERE id_usuario = ?',
+            (situacao, 1 , id_usuario)
         )
+
 
         con.commit()
         return jsonify({'mensagem': 'situacao atualizada com sucesso'}), 200

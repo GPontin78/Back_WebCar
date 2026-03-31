@@ -1,6 +1,7 @@
 from flask import Flask
 import fdb
 import os
+from flask_cors import CORS
 
 
 app = Flask(__name__)
@@ -8,6 +9,7 @@ app.config.from_pyfile('config.py')
 
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+CORS(app, supports_credentials=True, origins="")
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
@@ -29,6 +31,8 @@ except Exception as e:
 
 
 from usuario import *
+from veiculo import *
+from manutencao import *
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
