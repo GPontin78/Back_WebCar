@@ -152,32 +152,42 @@ def login():
     dados = request.get_json()
     email = dados.get('email').lower()
     senha = dados.get('senha')
+
     try:
         cursor = con.cursor()
 
-        cursor.execute("""SELECT ID_USUARIO, email, SENHA, TIPO, SITUACAO, TENTATIVA FROM USUARIO WHERE email = ? """, (email,))
+        cursor.execute("""
+            SELECT ID_USUARIO, NOME, EMAIL, SENHA, TIPO, SITUACAO, TENTATIVA
+            FROM USUARIO
+            WHERE EMAIL = ?
+        """, (email,))
         dados_do_banco = cursor.fetchone()
 
         if not dados_do_banco:
             return jsonify({'mensagem': 'Email ou senha invalida'}), 401
 
-        situacao = dados_do_banco[4]
-        tentativa = dados_do_banco[5]
+        id_usuario = dados_do_banco[0]
+        nome = dados_do_banco[1]
+        email_banco = dados_do_banco[2]
+        senha_escritanobanco = dados_do_banco[3]
+        tipo = dados_do_banco[4]
+        situacao = dados_do_banco[5]
+        tentativa = dados_do_banco[6]
 
         if situacao == 2:
             return jsonify({'mensagem': 'Verifique seu email antes de logar'}), 403
 
-        senha_escritanobanco = dados_do_banco[2]
-        tipo = dados_do_banco[3]
-        id_usuario = dados_do_banco[0]
-
-
         if not check_password_hash(senha_escritanobanco, senha):
-            cursor.execute('update usuario set tentativa = tentativa + 1 where email = ?',
-                           (email, ))
+            cursor.execute(
+                'UPDATE USUARIO SET TENTATIVA = TENTATIVA + 1 WHERE EMAIL = ?',
+                (email,)
+            )
+
             if tentativa == 3 and tipo != 0:
-                cursor.execute('update usuario set situacao = 1 where email = ?',
-                               (email,))
+                cursor.execute(
+                    'UPDATE USUARIO SET SITUACAO = 1 WHERE EMAIL = ?',
+                    (email,)
+                )
                 con.commit()
                 return jsonify({'mensagem': 'usuario bloqueado entre em contato com o adm'})
 
@@ -187,24 +197,38 @@ def login():
         if situacao == 1:
             return jsonify({'mensagem': 'USUARIO BLOQUEADO'})
 
-
-
         token = gerar_token(id_usuario, tipo)
-        cursor.execute('update usuario set tentativa = 1 where email = ?',(email, ))
+
+        cursor.execute('UPDATE USUARIO SET TENTATIVA = 1 WHERE EMAIL = ?', (email,))
         con.commit()
-        resposta = make_response(jsonify({'mensagem': 'login com sucesso'}), 200)
-        resposta.set_cookie('access_token', token,
-                            httponly=True,
-                            secure=False,
-                            samesite='Lax',
-                            path="/",
-                            max_age=3600)
+
+        resposta = make_response(jsonify({
+            'mensagem': 'login com sucesso',
+            'usuario': {
+                'id': id_usuario,
+                'nome': nome,
+                'email': email_banco,
+                'tipo': tipo
+            }
+        }), 200)
+
+        resposta.set_cookie(
+            'access_token',
+            token,
+            httponly=True,
+            secure=False,
+            samesite='Lax',
+            path="/",
+            max_age=3600
+        )
+
         return resposta
+
     except Exception as e:
-        return jsonify({'mensagem': 'Erro no login'}), 500
+        return jsonify({'mensagem': f'Erro no login: {e}'}), 500
+
     finally:
         cursor.close()
-
 @app.route('/logout', methods=['POST'])
 def logout():
     resposta = make_response(jsonify({'mensagem': 'Logout realizado com sucesso'}), 200)
