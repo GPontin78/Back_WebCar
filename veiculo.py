@@ -5,7 +5,7 @@ import os
 
 @app.route("/adicionar_veiculo", methods=['POST'])
 def adicionar_veiculo():
-    marca = request.form.get('marca')
+    id_marca = request.form.get('id_marca')
     modelo = request.form.get('modelo')
     ano_fabricacao = request.form.get('ano_fabricacao')
     ano_modelo = request.form.get('ano_modelo')
@@ -36,11 +36,24 @@ def adicionar_veiculo():
         if cursor.fetchone():
             return jsonify({'mensagem': 'Já existe um veículo com essa placa'}), 400
 
-        cursor.execute("""INSERT INTO veiculo(marca,modelo,ano_fabricacao,ano_modelo,placa,km,cor,cambio,combustivel,renavam,preco_custo,preco_venda,status,documentacao
+        print('aqqqq')
+
+        cursor.execute(""" select id_marca from marca where id_marca=? """, (id_marca,))
+        marca_banco = cursor.fetchone()
+
+        print('aq de novo')
+
+        cursor.execute("select id_empresa from empresa")
+        empresa_banco = cursor.fetchone()
+
+        print('aq de novoooo')
+
+        cursor.execute("""INSERT INTO veiculo(id_marca,modelo,ano_fabricacao,ano_modelo,placa,km,cor,cambio,combustivel,renavam,preco_custo,preco_venda,status,documentacao, id_empresa
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
             RETURNING id_veiculo
-        """, (marca,modelo,ano_fabricacao,ano_modelo,placa,km,cor,cambio,combustivel,renavam,preco_custo,preco_venda,documentacao))
+        """, (marca_banco[0],modelo,ano_fabricacao,ano_modelo,placa,km,cor,cambio,combustivel,renavam,preco_custo,preco_venda,documentacao, empresa_banco[0]))
+        print("a2")
 
         id_veiculo = cursor.fetchone()[0]
         con.commit()
@@ -186,7 +199,7 @@ def deletar_veiculo(id_veiculo):
 def buscar_veiculo():
     dados = request.get_json()
     modelo = dados.get('modelo')
-    marca = dados.get('marca')
+    nome = dados.get('nome')
     id_veiculo = dados.get('id_veiculo')
 
     tipo_usuario = descobre_tipo_usuario()
@@ -203,36 +216,35 @@ def buscar_veiculo():
 
         if modelo:
             modelo = modelo.upper()
-            cursor.execute("""
-                SELECT MARCA, MODELO, ANO_FABRICACAO, ANO_MODELO, PLACA, KM, COR, CAMBIO,
-               COMBUSTIVEL, RENAVAM, PRECO_CUSTO, PRECO_VENDA, STATUS, DOCUMENTACAO
-                FROM veiculo 
+            cursor.execute("""SELECT m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
+               v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
+                FROM veiculo v 
+                INNER JOIN MARCA m ON V.ID_MARCA = M.ID_MARCA 
                 WHERE upper(modelo) LIKE ?
             """, (f'%{modelo}%',))
 
-        elif marca:
-            marca = marca.upper()
-            cursor.execute("""
-                SELECT MARCA, MODELO, ANO_FABRICACAO, ANO_MODELO, PLACA, KM, COR, CAMBIO,
-               COMBUSTIVEL, RENAVAM, PRECO_CUSTO, PRECO_VENDA, STATUS, DOCUMENTACAO
-                FROM veiculo 
-                WHERE upper(marca) LIKE ?
-            """, (f'%{marca}%',))
+        elif nome:
+            nome = nome.upper()
+            cursor.execute("""SELECT m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
+               v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
+                FROM veiculo v 
+                INNER JOIN MARCA m ON V.ID_MARCA = M.ID_MARCA 
+                WHERE upper(m.NOME) LIKE ?
+            """, (f'%{nome}%',))
 
         elif id_veiculo:
-            cursor.execute("""
-                SELECT MARCA, MODELO, ANO_FABRICACAO, ANO_MODELO, PLACA, KM, COR, CAMBIO,
-               COMBUSTIVEL, RENAVAM, PRECO_CUSTO, PRECO_VENDA, STATUS, DOCUMENTACAO
-                FROM veiculo 
+            cursor.execute("""SELECT m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
+               v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
+                FROM veiculo v 
+                INNER JOIN MARCA m ON V.ID_MARCA = M.ID_MARCA 
                 WHERE id_veiculo = ?
             """, (id_veiculo,))
 
         else:
-            cursor.execute("""
-                SELECT MARCA, MODELO, ANO_FABRICACAO, ANO_MODELO, PLACA, KM, COR, CAMBIO,
-               COMBUSTIVEL, RENAVAM, PRECO_CUSTO, PRECO_VENDA, STATUS, DOCUMENTACAO
-                FROM veiculo
-            """)
+            cursor.execute("""SELECT m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
+               v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
+                FROM veiculo v 
+                INNER JOIN MARCA m ON V.ID_MARCA = M.ID_MARCA """)
 
         veiculos = cursor.fetchall()
 
@@ -264,7 +276,6 @@ def buscar_veiculo():
 
     finally:
         cursor.close()
-
 
 
 
