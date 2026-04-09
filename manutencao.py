@@ -1,6 +1,7 @@
 from flask import jsonify, request
 from main import app, con
 from funcao import descobre_tipo_usuario
+from datetime import datetime
 import os
 
 @app.route('/adicionar_servico', methods=['POST'])
@@ -18,8 +19,16 @@ def adicionar_servico():
     try:
         cursor = con.cursor()
         cursor.execute("""insert into servico (descricao, valor_unitario) 
-                          values(?,?)""", (descricao, valor_unitario))
+                          values(?,?)RETURNING ID_servico""", (descricao, valor_unitario))
+
+        id_servico = cursor.fetchone()[0]
+
         con.commit()
+
+        cursor.execute("""insert into historico_servico(id_servico, descricao, valor_unitario)
+                        values(?,?,?)""", (id_servico, descricao, valor_unitario))
+        con.commit()
+
         return jsonify({'mensagem': 'Serviço cadastrado com sucesso',}), 200
 
     except Exception as e:
@@ -87,6 +96,7 @@ def buscar_servico():
     dados = request.get_json()
     descricao = dados.get('descricao')
     id_servico = dados.get('id_servico')
+    valor_unitario = float(dados.get('valor_unitario'))
 
     tipo_usuario = descobre_tipo_usuario()
 
@@ -114,6 +124,13 @@ def buscar_servico():
                 FROM servico 
                 WHERE id_servico = ?
             """, (id_servico,))
+
+        elif valor_unitario:
+            cursor.execute(""" 
+                            SELECT descricao, valor_unitario
+                FROM servico 
+                WHERE valor_unitario = ?
+            """, (valor_unitario,))
 
         else:
             cursor.execute("""
@@ -154,6 +171,10 @@ def adicionar_manutencao():
 
     try:
         cursor = con.cursor()
+        data_atual = datetime.now()
+        data = datetime.strptime(data, "%Y-%m-%d")
+        if data < data_atual:
+            return jsonify({'mensagem': 'Não é possível cadastrar manutencao com data retroativa'}), 403
 
         cursor.execute(""" select id_veiculo from veiculo where id_veiculo = ?
         """, (id_veiculo,))
@@ -164,7 +185,7 @@ def adicionar_manutencao():
         print(data)
 
         cursor.execute("""insert into manutencao ( id_veiculo, data, valor_total) 
-                          values(?,?, ?)""", (veiculo[0], data, valor_total))
+                          values(?,?, 0)""", (veiculo[0], data, valor_total))
         con.commit()
         return jsonify({'mensagem': 'Manutenção cadastrado com sucesso',}), 200
 
@@ -196,6 +217,11 @@ def edicao_manutencao(id_manutencao):
     valor_total = float(dados.get('valor_total'))
     try:
         cursor= con.cursor()
+        data_atual = datetime.now()
+        data = datetime.strptime(data, "%Y-%m-%d")
+        if data < data_atual:
+            return jsonify({'mensagem': 'Não é possível cadastrar manutencao com data retroativa'}), 403
+
         cursor.execute("""update manutencao 
                         set id_veiculo = ? , data = ?, valor_total = ? 
                         where id_manutencao = ?""",
@@ -260,16 +286,16 @@ def adicionar_item_manutencao():
 
         cursor.execute("""insert into item_manutencao ( id_manutencao, id_servico, quantidade, valor_total) 
                           values(?,?,?,?) returning id_item_manutencao""", (manutencao_banco[0],servico_banco[0],quantidade, valor_multi))
-
-        con.commit()
         id_item_manutencao = cursor.fetchone()[0]
+        con.commit()
+
 
 
         cursor.execute("""UPDATE MANUTENCAO SET VALOR_TOTAL = COALESCE(MANUTENCAO.VALOR_TOTAL,0) + (SELECT ITEM_MANUTENCAO.VALOR_TOTAL  
                                                                 FROM ITEM_MANUTENCAO
                                                                WHERE ITEM_MANUTENCAO.ID_MANUTENCAO = MANUTENCAO.ID_MANUTENCAO
                                                                AND ITEM_MANUTENCAO.ID_ITEM_MANUTENCAO = ?)
-                           WHERE MANUTENCAO.ID_MANUTENCAO  = ? """,(id_item_manutencao,))
+                           WHERE MANUTENCAO.ID_MANUTENCAO  = ? """,(id_item_manutencao, id_manutencao))
         con.commit()
         return jsonify({'mensagem': 'Item de manutencao cadastrado com sucesso',}), 200
 
