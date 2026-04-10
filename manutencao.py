@@ -24,9 +24,10 @@ def adicionar_servico():
         id_servico = cursor.fetchone()[0]
 
         con.commit()
+        data_atual= datetime.now()
 
-        cursor.execute("""insert into historico_servico(id_servico, descricao, valor_unitario)
-                        values(?,?,?)""", (id_servico, descricao, valor_unitario))
+        cursor.execute("""insert into historico_servico(id_servico, descricao, valor_unitario, data_historico)
+                        values(?,?,?)""", (id_servico, descricao, valor_unitario, data_atual))
         con.commit()
 
         return jsonify({'mensagem': 'Serviço cadastrado com sucesso',}), 200
@@ -44,26 +45,47 @@ def edicao_servico(id_servico):
         return jsonify({'mensagem': 'Apenas Adm pode editar'}), 403
 
     cursor = con.cursor()
-    cursor.execute("""select id_servico, descricao, valor_unitario       
-                        from servico where id_servico=?""", (id_servico,))
-    existe_servico = cursor.fetchone()
-    if not existe_servico:
-        return jsonify({'mensagem': 'Não existe serviço'})
 
-    dados = request.get_json()
-    descricao = dados.get('descricao')
-    valor_unitario = float(dados.get('valor_unitario'))
     try:
-        cursor= con.cursor()
-        cursor.execute("""update servico 
-                        set descricao = ? , valor_unitario = ? 
-                        where id_servico = ?""",
-                       (descricao, valor_unitario, id_servico))
+        cursor.execute("""
+            select id_servico, descricao, valor_unitario
+            from servico
+            where id_servico = ?
+        """, (id_servico,))
+        existe_servico = cursor.fetchone()
+
+        if not existe_servico:
+            return jsonify({'mensagem': 'Não existe serviço'}), 404
+
+        valor_antigo = float(existe_servico[2])
+
+        dados = request.get_json()
+        descricao = dados.get('descricao')
+        valor_unitario = float(dados.get('valor_unitario'))
+
+        cursor.execute("""
+            update servico
+            set descricao = ?, valor_unitario = ?
+            where id_servico = ?
+        """, (descricao, valor_unitario, id_servico))
+
+        if valor_antigo != valor_unitario:
+            data_atual = datetime.now()
+
+            cursor.execute("""
+                insert into historico_servico(id_servico, valor_unitario, data_historico, descricao)
+                values (?, ?, ?, ?)
+            """, (id_servico, valor_unitario, data_atual, descricao))
+
         con.commit()
-        return jsonify({
-            'mensagem': 'Serviço atualizado com sucesso',}), 201
+
+        return jsonify({'mensagem': 'Serviço atualizado com sucesso'}), 200
+
     except Exception as e:
-        return jsonify({'mensagem': 'erro ao editar'})
+        return jsonify({'mensagem': f'Erro ao editar serviço: {str(e)}'}), 500
+
+    finally:
+        cursor.close()
 
 
 
@@ -156,6 +178,76 @@ def buscar_servico():
 
     finally:
         cursor.close()
+
+@app.route('/buscar_historico_servico', methods=['POST'])
+def buscar_historico_servico():
+    dados = request.get_json()
+    descricao = dados.get('descricao')
+    id_servico = dados.get('id_servico')
+    valor_unitario = dados.get('valor_unitario')
+
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario is None:
+        return jsonify({'mensagem': 'Usuário não logado'}), 403
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas ADM pode acessar'}), 403
+
+    try:
+        cursor = con.cursor()
+        lista_historico = []
+
+        if descricao:
+            descricao = descricao.upper()
+            cursor.execute("""
+                SELECT id_servico, descricao, valor_unitario, data_historico
+                FROM historico_servico
+                WHERE upper(descricao) LIKE ?
+            """, (f'%{descricao}%',))
+
+        elif id_servico:
+            cursor.execute("""
+                SELECT id_servico, descricao, valor_unitario, data_historico
+                FROM historico_servico
+                WHERE id_servico = ?
+            """, (id_servico,))
+
+        elif valor_unitario:
+            valor_unitario = float(valor_unitario)
+            cursor.execute("""
+                SELECT id_servico, descricao, valor_unitario, data_historico
+                FROM historico_servico
+                WHERE valor_unitario = ?
+            """, (valor_unitario,))
+
+        else:
+            cursor.execute("""
+                SELECT id_servico, descricao, valor_unitario, data_historico
+                FROM historico_servico
+            """)
+
+        historicos = cursor.fetchall()
+
+        for historico in historicos:
+            lista_historico.append({
+                'id_servico': historico[0],
+                'descricao': historico[1],
+                'valor_unitario': historico[2],
+                'data_historico': historico[3]
+            })
+
+        if not lista_historico:
+            return jsonify({'mensagem': 'Histórico não encontrado'}), 404
+
+        return jsonify({'historico_servico': lista_historico}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao buscar histórico: {str(e)}'}), 500
+
+    finally:
+        cursor.close()
+
 
 @app.route('/adicionar_manutencao', methods=['POST'])
 def adicionar_manutencao():
@@ -258,6 +350,7 @@ def deletar_manutencao(id_manutencao):
     finally:
         cursor.close()
 
+
 @app.route('/adicionar_item_manutencao', methods=['POST'])
 def adicionar_item_manutencao():
     dados = request.get_json()
@@ -287,6 +380,7 @@ def adicionar_item_manutencao():
         cursor.execute("""insert into item_manutencao ( id_manutencao, id_servico, quantidade, valor_total) 
                           values(?,?,?,?) returning id_item_manutencao""", (manutencao_banco[0],servico_banco[0],quantidade, valor_multi))
         id_item_manutencao = cursor.fetchone()[0]
+
         con.commit()
 
 
@@ -303,4 +397,6 @@ def adicionar_item_manutencao():
         return jsonify({'mensagem': f'Erro ao cadastrar Item Manutenção'}), 500
     finally:
         cursor.close()
+
+
 
