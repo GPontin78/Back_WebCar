@@ -27,7 +27,7 @@ def adicionar_servico():
         data_atual= datetime.now()
 
         cursor.execute("""insert into historico_servico(id_servico, valor_unitario, data_historico)
-                        values(?,?)""", (id_servico, valor_unitario, data_atual))
+                        values(?,?, ?)""", (id_servico, valor_unitario, data_atual))
         con.commit()
 
         return jsonify({'mensagem': 'Serviço cadastrado com sucesso',}), 200
@@ -66,17 +66,19 @@ def edicao_servico(id_servico):
         cursor.execute("""
             update servico
             set descricao = ?, valor_unitario = ?
-            where id_servico = ?
+            where id_servico = ? 
         """, (descricao, valor_unitario, id_servico))
 
         if valor_antigo != valor_unitario:
             data_atual = datetime.now()
-
+            print("aq")
             cursor.execute("""
                 insert into historico_servico(id_servico, valor_unitario, data_historico)
-                values (?, ?, ?, ?)
+                values (?, ?, ?)
             """, (id_servico, valor_unitario, data_atual))
-
+            print("aq11")
+            con.commit()
+            print("aq2")
         con.commit()
 
         return jsonify({'mensagem': 'Serviço atualizado com sucesso'}), 200
@@ -208,7 +210,6 @@ def adicionar_manutencao():
     dados = request.get_json()
     id_veiculo = dados.get('id_veiculo')
     data =  dados.get('data')
-    valor_total = float(dados.get('valor_total'))
 
     tipo_usuario = descobre_tipo_usuario()
 
@@ -217,10 +218,13 @@ def adicionar_manutencao():
 
     try:
         cursor = con.cursor()
-        data_atual = datetime.now()
-        data = datetime.strptime(data, "%Y-%m-%d")
+        data_atual = datetime.now().date()
+        data = datetime.strptime(data, "%d/%m/%Y").date()
+
         if data < data_atual:
-            return jsonify({'mensagem': 'Não é possível cadastrar manutencao com data retroativa'}), 403
+            return jsonify({
+                'mensagem': 'Não é possível cadastrar manutencao com data retroativa'
+            }), 403
 
         cursor.execute(""" select id_veiculo from veiculo where id_veiculo = ?
         """, (id_veiculo,))
@@ -229,9 +233,9 @@ def adicionar_manutencao():
         if not veiculo:
             return jsonify({'mensagem': 'Veiculo não encontrado',}), 400
         print(data)
-
+        valor_total=0
         cursor.execute("""insert into manutencao ( id_veiculo, data, valor_total) 
-                          values(?,?, 0)""", (veiculo[0], data, valor_total))
+                          values(?,?,?)""", (veiculo[0], data, valor_total))
         con.commit()
         return jsonify({'mensagem': 'Manutenção cadastrado com sucesso',}), 200
 
@@ -260,18 +264,19 @@ def edicao_manutencao(id_manutencao):
     dados = request.get_json()
     id_veiculo = dados.get('id_veiculo')
     data = dados.get('data')
-    valor_total = float(dados.get('valor_total'))
     try:
         cursor= con.cursor()
-        data_atual = datetime.now()
-        data = datetime.strptime(data, "%Y-%m-%d")
-        if data < data_atual:
-            return jsonify({'mensagem': 'Não é possível cadastrar manutencao com data retroativa'}), 403
+        data_atual = datetime.now().date()
+        data = datetime.strptime(data, "%d/%m/%Y").date()
 
+        if data < data_atual:
+            return jsonify({
+                'mensagem': 'Não é possível deletar manutencao com data retroativa'
+            }), 403
         cursor.execute("""update manutencao 
-                        set id_veiculo = ? , data = ?, valor_total = ? 
+                        set id_veiculo = ? , data = ? 
                         where id_manutencao = ?""",
-                       (id_veiculo, data, valor_total, id_manutencao))
+                       (id_veiculo, data, id_manutencao))
         con.commit()
         return jsonify({
             'mensagem': 'Manutenção atualizado com sucesso',}), 201
@@ -298,11 +303,13 @@ def deletar_manutencao(id_manutencao):
 
         cursor.execute("""select data from manutencao where id_manutencao = ?""", (id_manutencao,))
         data = cursor.fetchone()
-        data_atual = datetime.now()
-        data = datetime.strptime(data, "%Y-%m-%d")
+        data_atual = datetime.now().date()
+        data = datetime.strptime(data, "%d/%m/%Y").date()
 
         if data < data_atual:
-            return jsonify({'mensagem': 'Não é possível cadastrar manutencao com data retroativa'}), 403
+            return jsonify({
+                'mensagem': 'Não é possível deletar manutencao com data retroativa'
+            }), 403
 
         cursor.execute("""delete from manutencao where id_manutencao=?""",
                        (id_manutencao,))
@@ -423,11 +430,11 @@ def adicionar_item_manutencao():
 
 
 
-        cursor.execute("""UPDATE MANUTENCAO SET VALOR_TOTAL = COALESCE(MANUTENCAO.VALOR_TOTAL,0) + (SELECT ITEM_MANUTENCAO.VALOR_TOTAL  
+        cursor.execute("""UPDATE MANUTENCAO SET VALOR_TOTAL =  (SELECT sum(coalesce(ITEM_MANUTENCAO.VALOR_TOTAL,0))  
                                                                 FROM ITEM_MANUTENCAO
                                                                WHERE ITEM_MANUTENCAO.ID_MANUTENCAO = MANUTENCAO.ID_MANUTENCAO
-                                                               AND ITEM_MANUTENCAO.ID_ITEM_MANUTENCAO = ?)
-                           WHERE MANUTENCAO.ID_MANUTENCAO  = ? """,(id_item_manutencao, id_manutencao))
+                                                               )
+                           WHERE MANUTENCAO.ID_MANUTENCAO  = ? """,(id_manutencao,))
         con.commit()
         return jsonify({'mensagem': 'Item de manutencao cadastrado com sucesso',}), 200
 
@@ -500,18 +507,69 @@ def edicao_item_manutencao(id_item_manutencao):
             WHERE id_item_manutencao = ?
         """, (id_servico, quantidade, valor_novo, id_item_manutencao))
 
-        cursor.execute("""
-            UPDATE manutencao
-            SET valor_total = COALESCE(valor_total, 0) - ? + ?
-            WHERE id_manutencao = ?
-        """, (valor_antigo, valor_novo, id_manutencao))
-
+        cursor.execute("""UPDATE MANUTENCAO
+                          SET VALOR_TOTAL = (SELECT sum(coalesce(ITEM_MANUTENCAO.VALOR_TOTAL, 0))
+                                             FROM ITEM_MANUTENCAO
+                                             WHERE ITEM_MANUTENCAO.ID_MANUTENCAO = MANUTENCAO.ID_MANUTENCAO)
+                          WHERE MANUTENCAO.ID_MANUTENCAO = ? """, (id_manutencao,))
         con.commit()
 
-        return jsonify({'mensagem': 'Item de manutenção atualizado com sucesso'}), 200
+        return jsonify({'mensagem': 'Item de manutencao atualizado com sucesso', }), 200
 
     except Exception as e:
         return jsonify({'mensagem': f'Erro ao editar item de manutenção: {str(e)}'}), 500
+
+    finally:
+        cursor.close()
+
+@app.route('/deletar_item_manutencao/<int:id_item_manutencao>', methods=['DELETE'])
+def deletar_item_manutencao(id_item_manutencao):
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas Adm pode deletar'}), 403
+
+    try:
+        cursor = con.cursor()
+
+        cursor.execute("""
+            SELECT im.id_manutencao, im.valor_total, m.data
+            FROM item_manutencao im
+            INNER JOIN manutencao m ON im.id_manutencao = m.id_manutencao
+            WHERE im.id_item_manutencao = ?
+        """, (id_item_manutencao,))
+        item_banco = cursor.fetchone()
+
+        if not item_banco:
+            return jsonify({'mensagem': 'Item de manutenção não encontrado'}), 404
+
+        id_manutencao = item_banco[0]
+        valor_item = float(item_banco[1])
+        data_manutencao = item_banco[2]
+
+        data_atual = datetime.now().date()
+
+        if data_manutencao < data_atual:
+            return jsonify({
+                'mensagem': 'Não é possível deletar manutencao com data retroativa'
+            }), 403
+
+        cursor.execute("""
+            DELETE FROM item_manutencao
+            WHERE id_item_manutencao = ?
+        """, (id_item_manutencao,))
+
+        cursor.execute("""UPDATE MANUTENCAO
+                          SET VALOR_TOTAL = (SELECT sum(coalesce(ITEM_MANUTENCAO.VALOR_TOTAL, 0))
+                                             FROM ITEM_MANUTENCAO
+                                             WHERE ITEM_MANUTENCAO.ID_MANUTENCAO = MANUTENCAO.ID_MANUTENCAO)
+                          WHERE MANUTENCAO.ID_MANUTENCAO = ? """, (id_manutencao,))
+        con.commit()
+
+        return jsonify({'mensagem': 'Item de manutenção deletado com sucesso'}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao deletar item: {str(e)}'}), 500
 
     finally:
         cursor.close()

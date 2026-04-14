@@ -44,15 +44,33 @@ def gerar_token(id_usuario, tipo):
     token = jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
     return token
 
+# def descobre_tipo_usuario():
+#     token = request.cookies.get('access_token')
+#     if not token:
+#         return None # manda o arrumbado logar
+#     try:
+#         payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+#         return payload['tipo']
+#     except:
+#         return None # se der erro volta nada
+
+
+
 def descobre_tipo_usuario():
     token = request.cookies.get('access_token')
+    print("TOKEN RECEBIDO:", token)
+
     if not token:
-        return None # manda o arrumbado logar
+        return None
+
     try:
         payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        print("PAYLOAD:", payload)
+        print("TIPO:", payload['tipo'])
         return payload['tipo']
-    except:
-        return None # se der erro volta nada
+    except Exception as e:
+        print("ERRO TOKEN:", e)
+        return None
 
 def descobre_id_usuario():
     token = request.cookies.get('access_token')
