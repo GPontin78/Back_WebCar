@@ -573,3 +573,110 @@ def deletar_item_manutencao(id_item_manutencao):
 
     finally:
         cursor.close()
+
+@app.route('/buscar_historico_servico', methods=['POST'])
+def buscar_historico_servico():
+    dados = request.get_json()
+    id_servico = dados.get('id_servico')
+
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario is None:
+        return jsonify({'mensagem': 'Usuário não logado'}), 403
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas ADM pode acessar'}), 403
+    try:
+        cursor = con.cursor()
+        lista_historico_servico = []
+
+        if id_servico:
+            cursor.execute("""
+                            SELECT S.DESCRICAO, HS.VALOR_UNITARIO, HS.DATA_HISTORICO
+                            FROM HISTORICO_SERVICO hs 
+                            INNER JOIN SERVICO s ON HS.ID_SERVICO = S.ID_SERVICO 
+                            WHERE S.ID_SERVICO = ?
+            """, (id_servico,))
+
+        else:
+            cursor.execute("""
+                            SELECT S.DESCRICAO, HS.VALOR_UNITARIO, HS.DATA_HISTORICO
+                            FROM HISTORICO_SERVICO hs 
+                            INNER JOIN SERVICO s ON HS.ID_SERVICO = S.ID_SERVICO 
+            """)
+
+        historico_servicos = cursor.fetchall()
+
+        for historico_servico in historico_servicos:
+            lista_historico_servico.append({
+                'descrição': historico_servico[0],
+                'valor_unitário': historico_servico[1],
+                'data_histórico': historico_servico[2],
+            })
+
+        if not lista_historico_servico:
+            return jsonify({'mensagem': 'historico não encontrado'}), 404
+
+        return jsonify({'manutenções': lista_historico_servico}), 200
+
+    except:
+        return jsonify({'mensagem': 'Erro ao listar histórico'}), 500
+
+    finally:
+        cursor.close()
+
+
+# @app.route('/alterar_preco_servico', methods=['POST'])
+# def alterar_preco_servico():
+#     tipo_usuario = descobre_tipo_usuario()
+#
+#     if tipo_usuario != 0:
+#         return jsonify({'mensagem': 'Apenas Adm pode editar'}), 403
+#
+#     dados = request.get_json()
+#     id_servico = int(dados.get('id_servico'))
+#     porcentagem = float(dados.get('porcentagem')) / 100
+#     desconto = int(dados.get('desconto'))
+#
+#     try:
+#         cursor = con.cursor()
+#
+#         cursor.execute(""" select valor_unitario from servico where id_servico = ?  """, (id_servico,))
+#         valor = cursor.fetchall()
+#         valor_unitario = float(valor[0])
+#         print(valor_unitario)
+#
+#         if desconto == 1:
+#             if id_servico:
+#                 valor_total = float(valor_unitario * (1 - porcentagem))
+#                 cursor.execute("""UPDATE SERVICO SET VALOR_UNITARIO = ?
+#                                   WHERE ID_SERVICO = ?""",(valor_total, id_servico))
+#                 con.commit()
+#             else:
+#                 valor_total = float(valor_unitario * (1 - porcentagem))
+#                 cursor.execute("""UPDATE SERVICO
+#                                   SET VALOR_UNITARIO = ?""", (valor_total,))
+#                 con.commit()
+#
+#
+#
+#         if desconto == 0:
+#             if id_servico:
+#                 valor_total = float(valor_unitario * (1 + porcentagem))
+#                 cursor.execute("""UPDATE SERVICO
+#                                   SET VALOR_UNITARIO = ?
+#                                   WHERE ID_SERVICO = ?""", (valor_total, id_servico))
+#                 con.commit()
+#             else:
+#                 valor_total = float(valor_unitario * (1 + porcentagem))
+#                 cursor.execute("""UPDATE SERVICO
+#                                   SET VALOR_UNITARIO = ? """, (valor_total,))
+#                 con.commit()
+#
+#         return jsonify({'mensagem': 'Item de manutencao atualizado com sucesso', }), 200
+#
+#     except Exception as e:
+#         return jsonify({'mensagem': f'Erro ao editar item de manutenção: {str(e)}'}), 500
+#
+#     finally:
+#         cursor.close()

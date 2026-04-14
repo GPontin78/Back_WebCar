@@ -213,7 +213,7 @@ def buscar_veiculo():
     try:
         cursor = con.cursor()
         lista_veiculos = []
-
+        print("aw")
         if modelo:
             modelo = modelo.upper()
             cursor.execute("""SELECT m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
