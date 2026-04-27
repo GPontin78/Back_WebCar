@@ -5,12 +5,15 @@ from flask_cors import CORS
 
 
 app = Flask(__name__)
+app.config['SESSION_COOKIE_SAMESITE'] = "None"
+app.config['SESSION_COOKIE_SECURE'] = False
 app.config.from_pyfile('config.py')
 
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 CORS(app, supports_credentials=True, origins=["http://10.92.3.157:5173", "http://localhost:5174", "http://localhost:5173",
-                                              "http://10.92.3.172:5173", "http://10.92.3.174:5173",])
+                                              "http://10.92.3.172:5173", "http://10.92.3.174:5173","http://10.92.3.129:5173",
+                                              "http://10.92.3.192:5173",])
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)

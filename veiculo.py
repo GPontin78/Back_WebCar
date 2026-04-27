@@ -207,8 +207,6 @@ def buscar_veiculo():
     if tipo_usuario is None:
         return jsonify({'mensagem': 'usuario nao logado'}), 403
 
-    if tipo_usuario != 0:
-        return jsonify({'mensagem': 'Apenas ADM pode acessar'}), 403
 
     try:
         cursor = con.cursor()

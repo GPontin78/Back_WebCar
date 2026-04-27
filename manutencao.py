@@ -18,16 +18,15 @@ def adicionar_servico():
 
     try:
         cursor = con.cursor()
+
+        cursor.execute("""select 1 from servico where descricao = ?""",(descricao,))
+        if cursor.fetchone():
+            return jsonify({'mensagem': 'Serviço já existe', }), 200
+
         cursor.execute("""insert into servico (descricao, valor_unitario) 
-                          values(?,?)RETURNING ID_servico""", (descricao, valor_unitario))
+                          values(?,?)""", (descricao, valor_unitario))
 
-        id_servico = cursor.fetchone()[0]
 
-        con.commit()
-        data_atual= datetime.now()
-
-        cursor.execute("""insert into historico_servico(id_servico, valor_unitario, data_historico)
-                        values(?,?, ?)""", (id_servico, valor_unitario, data_atual))
         con.commit()
 
         return jsonify({'mensagem': 'Serviço cadastrado com sucesso',}), 200
@@ -57,11 +56,16 @@ def edicao_servico(id_servico):
         if not existe_servico:
             return jsonify({'mensagem': 'Não existe serviço'}), 404
 
+
         valor_antigo = float(existe_servico[2])
 
         dados = request.get_json()
         descricao = dados.get('descricao')
         valor_unitario = float(dados.get('valor_unitario'))
+
+        cursor.execute("""select 1 from servico where descricao = ?""",(descricao,))
+        if cursor.fetchone():
+            return jsonify({'mensagem': 'Serviço já existe', }), 200
 
         cursor.execute("""
             update servico
@@ -75,7 +79,7 @@ def edicao_servico(id_servico):
             cursor.execute("""
                 insert into historico_servico(id_servico, valor_unitario, data_historico)
                 values (?, ?, ?)
-            """, (id_servico, valor_unitario, data_atual))
+            """, (id_servico, valor_antigo, data_atual))
             print("aq11")
             con.commit()
             print("aq2")
@@ -625,58 +629,35 @@ def buscar_historico_servico():
     finally:
         cursor.close()
 
+@app.route('/atualizacao_preco', methods=['POST'])
+def atualizacao_preco():
+    tipo_usuario = descobre_tipo_usuario()
 
-# @app.route('/alterar_preco_servico', methods=['POST'])
-# def alterar_preco_servico():
-#     tipo_usuario = descobre_tipo_usuario()
-#
-#     if tipo_usuario != 0:
-#         return jsonify({'mensagem': 'Apenas Adm pode editar'}), 403
-#
-#     dados = request.get_json()
-#     id_servico = int(dados.get('id_servico'))
-#     porcentagem = float(dados.get('porcentagem')) / 100
-#     desconto = int(dados.get('desconto'))
-#
-#     try:
-#         cursor = con.cursor()
-#
-#         cursor.execute(""" select valor_unitario from servico where id_servico = ?  """, (id_servico,))
-#         valor = cursor.fetchall()
-#         valor_unitario = float(valor[0])
-#         print(valor_unitario)
-#
-#         if desconto == 1:
-#             if id_servico:
-#                 valor_total = float(valor_unitario * (1 - porcentagem))
-#                 cursor.execute("""UPDATE SERVICO SET VALOR_UNITARIO = ?
-#                                   WHERE ID_SERVICO = ?""",(valor_total, id_servico))
-#                 con.commit()
-#             else:
-#                 valor_total = float(valor_unitario * (1 - porcentagem))
-#                 cursor.execute("""UPDATE SERVICO
-#                                   SET VALOR_UNITARIO = ?""", (valor_total,))
-#                 con.commit()
-#
-#
-#
-#         if desconto == 0:
-#             if id_servico:
-#                 valor_total = float(valor_unitario * (1 + porcentagem))
-#                 cursor.execute("""UPDATE SERVICO
-#                                   SET VALOR_UNITARIO = ?
-#                                   WHERE ID_SERVICO = ?""", (valor_total, id_servico))
-#                 con.commit()
-#             else:
-#                 valor_total = float(valor_unitario * (1 + porcentagem))
-#                 cursor.execute("""UPDATE SERVICO
-#                                   SET VALOR_UNITARIO = ? """, (valor_total,))
-#                 con.commit()
-#
-#         return jsonify({'mensagem': 'Item de manutencao atualizado com sucesso', }), 200
-#
-#     except Exception as e:
-#         return jsonify({'mensagem': f'Erro ao editar item de manutenção: {str(e)}'}), 500
-#
-#     finally:
-#         cursor.close()
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas Adm pode atualizar'}), 403
+
+    try:
+        cursor = con.cursor()
+        dados = request.get_json()
+        id_servico = int(dados.get('id_servico'))
+        tipo = dados.get('tipo')
+        porcentagem = float(dados.get('porcentagem'))
+        if not dados:
+            return jsonify({'mensagem': 'JSON inválido'}), 400
+        print(porcentagem)
+        print(tipo)
+        print(id_servico)
+        cursor.execute(
+            """EXECUTE PROCEDURE pr_atualiza_valor (?,?,?)""",
+            (tipo, id_servico, porcentagem)
+        )
+
+        con.commit()
+
+        return jsonify({'mensagem': 'Serviço atualizado com sucesso'}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao atualizar Serviço: {str(e)}'}), 500
+
+    finally:
+            cursor.close()

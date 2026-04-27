@@ -5,8 +5,8 @@ import os
 
 @app.route("/adicionar_marca", methods=['POST'])
 def adicionar_marca():
-    dados = request.get_json()
-    nome = dados.get('nome')
+    nome = request.form.get('nome')
+    imagem = request.files.get('imagem')
 
     tipo_usuario = descobre_tipo_usuario()
     if tipo_usuario != 0:
@@ -14,17 +14,35 @@ def adicionar_marca():
 
     try:
         cursor = con.cursor()
-        cursor.execute("""select 1 from marca where nome = ?""", (nome,))
-        if cursor.fetchone():
-            return jsonify({'mensagem': 'Já existe está marca'}), 400
 
-        cursor.execute("""insert into marca(nome) 
-                       values (?)""", (nome,))
+        cursor.execute("""SELECT 1 FROM marca WHERE nome = ?""", (nome,))
+        if cursor.fetchone():
+            return jsonify({'mensagem': 'Já existe esta marca'}), 400
+
+        cursor.execute("""
+            INSERT INTO marca(nome)
+            VALUES (?)
+            RETURNING id_marca
+        """, (nome,))
+
+        id_marca = cursor.fetchone()[0]
         con.commit()
 
-        return jsonify({'mensagem': 'Marca cadastrada com sucesso'}), 403
+        if imagem:
+            pasta = os.path.join(app.config['UPLOAD_FOLDER'], "marca")
+            os.makedirs(pasta, exist_ok=True)
+
+            caminho = os.path.join(pasta, f"{id_marca}.jpg")
+            imagem.save(caminho)
+
+        return jsonify({
+            'mensagem': 'Marca cadastrada com sucesso',
+            'id_marca': id_marca
+        }), 201
+
     except Exception as e:
-        return jsonify({'mensagem': f'Erro ao cadastrar marca'}), 500
+        return jsonify({'mensagem': f'Erro ao cadastrar marca: {e}'}), 500
+
     finally:
         cursor.close()
 
@@ -35,27 +53,47 @@ def edicao_marca(id_marca):
     if tipo_usuario != 0:
         return jsonify({'mensagem': 'Apenas Adm pode editar'}), 403
 
-    cursor = con.cursor()
-    cursor.execute("""select id_marca, nome       
-                        from marca where id_marca=?""", (id_marca,))
-    existe_marca = cursor.fetchone()
-    if not existe_marca:
-        return jsonify({'mensagem': 'Não existe marca'})
-
-    dados = request.get_json()
-    nome = dados.get('nome')
-
     try:
-        cursor= con.cursor()
-        cursor.execute("""update marca 
-                        set nome = ?  
-                        where id_marca = ?""",
-                       (nome, id_marca))
+        cursor = con.cursor()
+
+        cursor.execute("""
+            SELECT id_marca, nome       
+            FROM marca 
+            WHERE id_marca = ?
+        """, (id_marca,))
+        existe_marca = cursor.fetchone()
+
+        if not existe_marca:
+            return jsonify({'mensagem': 'Não existe marca'}), 404
+
+        nome = request.form.get('nome')
+        imagem = request.files.get('imagem')
+
+        cursor.execute("""
+            UPDATE marca 
+            SET nome = ?  
+            WHERE id_marca = ?
+        """, (nome, id_marca))
+
         con.commit()
+
+
+        if imagem:
+            pasta = os.path.join(app.config['UPLOAD_FOLDER'], "marca")
+            os.makedirs(pasta, exist_ok=True)
+
+            caminho = os.path.join(pasta, f"{id_marca}.jpg")
+            imagem.save(caminho)
+
         return jsonify({
-            'mensagem': 'Marca atualizado com sucesso',}), 201
+            'mensagem': 'Marca atualizada com sucesso'
+        }), 200
+
     except Exception as e:
-        return jsonify({'mensagem': 'erro ao editar'})
+        return jsonify({'mensagem': f'Erro ao editar: {e}'}), 500
+
+    finally:
+        cursor.close()
 
 @app.route('/deletar_marca/<int:id_marca>', methods=['DELETE'])
 def deletar_marca(id_marca):
@@ -92,8 +130,6 @@ def buscar_marca():
     if tipo_usuario is None:
         return jsonify({'mensagem': 'Usuário não logado'}), 403
 
-    if tipo_usuario != 0:
-        return jsonify({'mensagem': 'Apenas ADM pode acessar'}), 403
 
     try:
         cursor = con.cursor()
