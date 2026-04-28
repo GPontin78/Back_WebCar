@@ -80,27 +80,15 @@ def adicionar_veiculo():
 
 @app.route('/edicao_veiculo/<int:id_veiculo>', methods=['PUT'])
 def edicao_veiculo(id_veiculo):
-
     tipo_usuario = descobre_tipo_usuario()
+
     if tipo_usuario is None:
         return jsonify({'mensagem': 'usuario nao logado'}), 403
 
     if tipo_usuario != 0:
         return jsonify({'mensagem': 'Apenas Adm pode editar veiculo'}), 403
 
-    cursor = con.cursor()
-    cursor.execute("""
-        SELECT MARCA, MODELO, ANO_FABRICACAO, ANO_MODELO, PLACA, KM, COR, CAMBIO,
-               COMBUSTIVEL, RENAVAM, PRECO_CUSTO, PRECO_VENDA, STATUS, DOCUMENTACAO
-        FROM VEICULO
-        WHERE ID_VEICULO = ?
-    """, (id_veiculo,))
-    existe_veiculo = cursor.fetchone()
-
-    if not existe_veiculo:
-        return jsonify({'mensagem': 'Veiculo nao encontrado'}), 404
-
-    marca = request.form.get('marca')
+    id_marca = request.form.get('id_marca')
     modelo = request.form.get('modelo')
     ano_fabricacao = request.form.get('ano_fabricacao')
     ano_modelo = request.form.get('ano_modelo')
@@ -113,32 +101,67 @@ def edicao_veiculo(id_veiculo):
     preco_custo = request.form.get('preco_custo')
     preco_venda = request.form.get('preco_venda')
     documentacao = request.form.get('documentacao')
-    status = request.form.get('status')
+    status = request.form.get('status') or 0
 
     imagens = request.files.getlist('imagem')
 
     try:
         cursor = con.cursor()
 
+        cursor.execute("SELECT 1 FROM VEICULO WHERE ID_VEICULO = ?", (id_veiculo,))
+        if not cursor.fetchone():
+            return jsonify({'mensagem': 'Veiculo nao encontrado'}), 404
 
-        cursor.execute("SELECT 1 FROM VEICULO WHERE RENAVAM = ? AND ID_VEICULO != ?", (renavam, id_veiculo))
+        cursor.execute(
+            "SELECT 1 FROM VEICULO WHERE RENAVAM = ? AND ID_VEICULO != ?",
+            (renavam, id_veiculo)
+        )
         if cursor.fetchone():
             return jsonify({'mensagem': 'Renavam já cadastrado'}), 400
 
-        cursor.execute("SELECT 1 FROM VEICULO WHERE PLACA = ? AND ID_VEICULO != ?", (placa, id_veiculo))
+        cursor.execute(
+            "SELECT 1 FROM VEICULO WHERE PLACA = ? AND ID_VEICULO != ?",
+            (placa, id_veiculo)
+        )
         if cursor.fetchone():
             return jsonify({'mensagem': 'Placa já cadastrada'}), 400
 
         cursor.execute("""
             UPDATE VEICULO
-            SET MARCA = ?, MODELO = ?, ANO_FABRICACAO = ?, ANO_MODELO = ?, PLACA = ?,
-                KM = ?, COR = ?, CAMBIO = ?, COMBUSTIVEL = ?, RENAVAM = ?,
-                PRECO_CUSTO = ?, PRECO_VENDA = ?, DOCUMENTACAO = ?, STATUS = ?
-                WHERE ID_VEICULO = ?
+            SET 
+                ID_MARCA = ?,
+                MODELO = ?,
+                ANO_FABRICACAO = ?,
+                ANO_MODELO = ?,
+                PLACA = ?,
+                KM = ?,
+                COR = ?,
+                CAMBIO = ?,
+                COMBUSTIVEL = ?,
+                RENAVAM = ?,
+                PRECO_CUSTO = ?,
+                PRECO_VENDA = ?,
+                DOCUMENTACAO = ?,
+                STATUS = ?
+            WHERE ID_VEICULO = ?
         """, (
-            marca, modelo, ano_fabricacao, ano_modelo, placa, km, cor, cambio,
-            combustivel, renavam, preco_custo, preco_venda, documentacao, status, id_veiculo
+            id_marca,
+            modelo,
+            ano_fabricacao,
+            ano_modelo,
+            placa,
+            km,
+            cor,
+            cambio,
+            combustivel,
+            renavam,
+            preco_custo,
+            preco_venda,
+            documentacao,
+            status,
+            id_veiculo
         ))
+
         con.commit()
 
         if imagens:
@@ -158,7 +181,8 @@ def edicao_veiculo(id_veiculo):
         }), 200
 
     except Exception as e:
-        return jsonify({'mensagem': 'erro ao editar veiculo'}), 500
+        print("ERRO AO EDITAR VEICULO:", e)
+        return jsonify({'mensagem': f'Erro ao editar veiculo: {e}'}), 500
 
     finally:
         cursor.close()
@@ -207,15 +231,15 @@ def buscar_veiculo():
     if tipo_usuario is None:
         return jsonify({'mensagem': 'usuario nao logado'}), 403
 
-
     try:
         cursor = con.cursor()
         lista_veiculos = []
-        print("aw")
+
         if modelo:
             modelo = modelo.upper()
-            cursor.execute("""SELECT m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
-               v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
+            cursor.execute("""
+                SELECT v.ID_VEICULO, m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
+                       v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
                 FROM veiculo v 
                 INNER JOIN MARCA m ON V.ID_MARCA = M.ID_MARCA 
                 WHERE upper(modelo) LIKE ?
@@ -223,45 +247,50 @@ def buscar_veiculo():
 
         elif nome:
             nome = nome.upper()
-            cursor.execute("""SELECT m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
-               v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
+            cursor.execute("""
+                SELECT v.ID_VEICULO, m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
+                       v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
                 FROM veiculo v 
                 INNER JOIN MARCA m ON V.ID_MARCA = M.ID_MARCA 
                 WHERE upper(m.NOME) LIKE ?
             """, (f'%{nome}%',))
 
         elif id_veiculo:
-            cursor.execute("""SELECT m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
-               v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
+            cursor.execute("""
+                SELECT v.ID_VEICULO, m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
+                       v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
                 FROM veiculo v 
                 INNER JOIN MARCA m ON V.ID_MARCA = M.ID_MARCA 
-                WHERE id_veiculo = ?
+                WHERE v.ID_VEICULO = ?
             """, (id_veiculo,))
 
         else:
-            cursor.execute("""SELECT m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
-               v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
+            cursor.execute("""
+                SELECT v.ID_VEICULO, m.nome, v.MODELO, v.ANO_FABRICACAO, v.ANO_MODELO, v.PLACA, v.KM, v.COR, v.CAMBIO,
+                       v.COMBUSTIVEL, v.RENAVAM, v.PRECO_CUSTO, v.PRECO_VENDA, v.STATUS, v.DOCUMENTACAO
                 FROM veiculo v 
-                INNER JOIN MARCA m ON V.ID_MARCA = M.ID_MARCA """)
+                INNER JOIN MARCA m ON V.ID_MARCA = M.ID_MARCA
+            """)
 
         veiculos = cursor.fetchall()
 
         for veiculo in veiculos:
             lista_veiculos.append({
-                'MARCA': veiculo[0],
-                'MODELO': veiculo[1],
-                'ANO_FABRICACAO': veiculo[2],
-                'ANO_MODELO': veiculo[3],
-                'PLACA': veiculo[4],
-                'KM': veiculo[5],
-                'COR': veiculo[6],
-                'CAMBIO': veiculo[7],
-                'COMBUSTIVEL': veiculo[8],
-                'RENAVAM': veiculo[9],
-                'PRECO_CUSTO': veiculo[10],
-                'PRECO_VENDA': veiculo[11],
-                'STATUS': veiculo[12],
-                'DOCUMENTACAO': veiculo[13]
+                'ID_VEICULO': veiculo[0],
+                'MARCA': veiculo[1],
+                'MODELO': veiculo[2],
+                'ANO_FABRICACAO': veiculo[3],
+                'ANO_MODELO': veiculo[4],
+                'PLACA': veiculo[5],
+                'KM': veiculo[6],
+                'COR': veiculo[7],
+                'CAMBIO': veiculo[8],
+                'COMBUSTIVEL': veiculo[9],
+                'RENAVAM': veiculo[10],
+                'PRECO_CUSTO': veiculo[11],
+                'PRECO_VENDA': veiculo[12],
+                'STATUS': veiculo[13],
+                'DOCUMENTACAO': veiculo[14]
             })
 
         if not lista_veiculos:
@@ -269,12 +298,8 @@ def buscar_veiculo():
 
         return jsonify({'veiculos': lista_veiculos}), 200
 
-    except:
-        return jsonify({'mensagem': 'Erro ao listar veículos'}), 500
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao listar veículos: {str(e)}'}), 500
 
     finally:
         cursor.close()
-
-
-
-

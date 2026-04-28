@@ -1,11 +1,11 @@
-from flask import jsonify, request
+from flask import jsonify, request,send_from_directory
 from main import app, con
 from funcao import descobre_tipo_usuario
 import os
 
 @app.route("/adicionar_marca", methods=['POST'])
 def adicionar_marca():
-    nome = request.form.get('nome')
+    nome = request.form.get('nome').capitalize()
     imagem = request.files.get('imagem')
 
     tipo_usuario = descobre_tipo_usuario()
@@ -18,6 +18,8 @@ def adicionar_marca():
         cursor.execute("""SELECT 1 FROM marca WHERE nome = ?""", (nome,))
         if cursor.fetchone():
             return jsonify({'mensagem': 'Já existe esta marca'}), 400
+        if not nome:
+            return jsonify({'mensagem': 'Digite uma Marca'}), 400
 
         cursor.execute("""
             INSERT INTO marca(nome)
@@ -66,8 +68,16 @@ def edicao_marca(id_marca):
         if not existe_marca:
             return jsonify({'mensagem': 'Não existe marca'}), 404
 
-        nome = request.form.get('nome')
+        nome = request.form.get('nome').capitalize()
         imagem = request.files.get('imagem')
+        cursor.execute("""select nome from marca nome = ? """, (nome))
+
+        if not nome:
+            return jsonify({'mensagem': 'Digite uma nome'}), 400
+        nome_banco = cursor.fetchone()[0]
+        if nome_banco != nome:
+            return jsonify({'mensagem': 'Já existe esta marca'}), 404
+
 
         cursor.execute("""
             UPDATE marca 
@@ -115,13 +125,14 @@ def deletar_marca(id_marca):
         con.commit()
         return jsonify({'mensagem': 'Marca deletado com sucesso'})
     except Exception as e:
-        return jsonify({'mensagem': 'erro ao deletar servico em mais de uma tabela'})
+        return jsonify({'mensagem': 'Erro ao deletar, marca em mais de uma tabela'}), 400
     finally:
         cursor.close()
 
 @app.route('/buscar_marca', methods=['POST'])
 def buscar_marca():
-    dados = request.get_json()
+    dados = request.get_json() or {}
+
     nome = dados.get('nome')
     id_marca = dados.get('id_marca')
 
@@ -130,47 +141,55 @@ def buscar_marca():
     if tipo_usuario is None:
         return jsonify({'mensagem': 'Usuário não logado'}), 403
 
-
     try:
         cursor = con.cursor()
         lista_marcas = []
 
-        if nome :
+        if nome:
             nome = nome.upper()
+
             cursor.execute("""
-                SELECT nome
+                SELECT id_marca, nome
                 FROM marca 
                 WHERE upper(nome) LIKE ?
+                ORDER BY nome
             """, (f'%{nome}%',))
-
 
         elif id_marca:
             cursor.execute("""
-                SELECT nome
+                SELECT id_marca, nome
                 FROM marca 
                 WHERE id_marca = ?
             """, (id_marca,))
 
         else:
             cursor.execute("""
-                SELECT nome
+                SELECT id_marca, nome
                 FROM marca
+                ORDER BY nome
             """)
 
         marcas = cursor.fetchall()
 
         for marca in marcas:
-            lista_marcas.append({
-                'nome': marca[0],
-            })
+            id_marca = marca[0]
 
-        if not lista_marcas:
-            return jsonify({'mensagem': 'Marca não encontrado'}), 404
+            lista_marcas.append({
+                'id_marca': id_marca,
+                'nome': marca[1],
+                'imagem': f'{request.host_url}uploads/marca/{id_marca}.jpg'
+            })
 
         return jsonify({'marcas': lista_marcas}), 200
 
-    except:
-        return jsonify({'mensagem': 'Erro ao listar marcas'}), 500
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao listar marcas: {e}'}), 500
 
     finally:
         cursor.close()
+
+
+@app.route('/uploads/marca/<arquivo>', methods=['GET'])
+def imagem_marca(arquivo):
+    pasta = os.path.join(app.config['UPLOAD_FOLDER'], "marca")
+    return send_from_directory(pasta, arquivo)

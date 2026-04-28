@@ -7,7 +7,7 @@ import os
 @app.route('/adicionar_servico', methods=['POST'])
 def adicionar_servico():
     dados = request.get_json()
-    descricao = dados.get('descricao')
+    descricao = dados.get('descricao').capitalize()
     valor_unitario =  float(dados.get('valor_unitario'))
 
     tipo_usuario = descobre_tipo_usuario()
@@ -21,7 +21,12 @@ def adicionar_servico():
 
         cursor.execute("""select 1 from servico where descricao = ?""",(descricao,))
         if cursor.fetchone():
-            return jsonify({'mensagem': 'Serviço já existe', }), 200
+            return jsonify({'mensagem': 'Serviço já existe', }), 400
+
+        if not descricao:
+            return jsonify({'mensagem': 'Digite uma descrição', }), 400
+        if not valor_unitario:
+            return jsonify({'mensagem': 'Digite um valor', }), 400
 
         cursor.execute("""insert into servico (descricao, valor_unitario) 
                           values(?,?)""", (descricao, valor_unitario))
@@ -57,15 +62,20 @@ def edicao_servico(id_servico):
             return jsonify({'mensagem': 'Não existe serviço'}), 404
 
 
+
         valor_antigo = float(existe_servico[2])
 
         dados = request.get_json()
-        descricao = dados.get('descricao')
+        descricao = dados.get('descricao').capitalize()
         valor_unitario = float(dados.get('valor_unitario'))
 
-        cursor.execute("""select 1 from servico where descricao = ?""",(descricao,))
-        if cursor.fetchone():
-            return jsonify({'mensagem': 'Serviço já existe', }), 200
+        cursor.execute("""select descricao from servico where descricao = ?""", (descricao,))
+
+        descricao_banco = cursor.fetchone()[0]
+        if descricao_banco != descricao:
+            cursor.execute("""select 1 from servico where descricao = ?""", (descricao,))
+            if cursor.fetchone():
+                return jsonify({'mensagem': 'Serviço já existe', }), 200
 
         cursor.execute("""
             update servico
@@ -193,6 +203,7 @@ def buscar_servico():
                     valor_porcentagem = round(valor_porcentagem, 2)
 
             lista_servicos.append({
+                'id_servico': id_servico_banco,
                 'descricao': descricao_banco,
                 'valor_unitario': valor_atual,
                 'valor_porcentagem': valor_porcentagem
@@ -238,11 +249,19 @@ def adicionar_manutencao():
             return jsonify({'mensagem': 'Veiculo não encontrado',}), 400
         print(data)
         valor_total=0
-        cursor.execute("""insert into manutencao ( id_veiculo, data, valor_total) 
-                          values(?,?,?)""", (veiculo[0], data, valor_total))
-        con.commit()
-        return jsonify({'mensagem': 'Manutenção cadastrado com sucesso',}), 200
+        cursor.execute("""
+            insert into manutencao (id_veiculo, data, valor_total) 
+            values (?, ?, ?)
+            returning id_manutencao
+        """, (veiculo[0], data, valor_total))
 
+        id_manutencao = cursor.fetchone()[0]
+        con.commit()
+
+        return jsonify({
+            'mensagem': 'Manutenção cadastrada com sucesso',
+            'id_manutencao': id_manutencao
+        }), 200
     except Exception as e:
         return jsonify({'mensagem': f'Erro ao cadastrar Manutenção'}), 500
     finally:
@@ -306,7 +325,7 @@ def deletar_manutencao(id_manutencao):
         cursor = con.cursor()
 
         cursor.execute("""select data from manutencao where id_manutencao = ?""", (id_manutencao,))
-        data = cursor.fetchone()
+        data = cursor.fetchone()[0]
         data_atual = datetime.now().date()
         data = datetime.strptime(data, "%d/%m/%Y").date()
 
@@ -345,7 +364,7 @@ def buscar_manutencao():
 
         if id_veiculo:
             cursor.execute("""
-                            SELECT v.modelo, m."DATA", m.VALOR_TOTAL, M2.NOME 
+                            SELECT m.ID_MANUTENCAO, v.modelo, m."DATA", m.VALOR_TOTAL, M2.NOME 
                             FROM MANUTENCAO m
                             INNER JOIN VEICULO v ON M.ID_VEICULO = V.ID_VEICULO
                             INNER JOIN MARCA m2 ON V.ID_MARCA = M2.ID_MARCA 
@@ -354,7 +373,7 @@ def buscar_manutencao():
 
         elif id_manutencao:
             cursor.execute(""" 
-                            SELECT v.modelo, m."DATA", m.VALOR_TOTAL, M2.NOME 
+                            SELECT m.ID_MANUTENCAO, v.modelo, m."DATA", m.VALOR_TOTAL, M2.NOME 
                             FROM MANUTENCAO m
                             INNER JOIN VEICULO v ON M.ID_VEICULO = V.ID_VEICULO
                             INNER JOIN MARCA m2 ON V.ID_MARCA = M2.ID_MARCA 
@@ -363,7 +382,7 @@ def buscar_manutencao():
 
         elif valor_total:
             cursor.execute("""
-                           SELECT v.modelo, m."DATA", m.VALOR_TOTAL, M2.NOME
+                           SELECT m.ID_MANUTENCAO, v.modelo, m."DATA", m.VALOR_TOTAL, M2.NOME
                            FROM MANUTENCAO m
                             INNER JOIN VEICULO v ON M.ID_VEICULO = V.ID_VEICULO
                             INNER JOIN MARCA m2 ON V.ID_MARCA = M2.ID_MARCA
@@ -372,7 +391,7 @@ def buscar_manutencao():
 
         else:
             cursor.execute("""
-                            SELECT v.modelo, m."DATA", m.VALOR_TOTAL, M2.NOME
+                            SELECT m.ID_MANUTENCAO, v.modelo, m."DATA", m.VALOR_TOTAL, M2.NOME
                            FROM MANUTENCAO m
                             INNER JOIN VEICULO v ON M.ID_VEICULO = V.ID_VEICULO
                             INNER JOIN MARCA m2 ON V.ID_MARCA = M2.ID_MARCA
@@ -382,10 +401,11 @@ def buscar_manutencao():
 
         for manutenção in manutenções:
             lista_manutenções.append({
-                'modelo': manutenção[0],
-                'data': manutenção[1],
-                'nome': manutenção[3],
-                'valor_total': manutenção[2]
+                'id_manutencao': manutenção[0],
+                'modelo': manutenção[1],
+                'data': manutenção[2],
+                'valor_total': manutenção[3],
+                'nome': manutenção[4]
             })
 
         if not lista_manutenções:
@@ -578,6 +598,61 @@ def deletar_item_manutencao(id_item_manutencao):
     finally:
         cursor.close()
 
+@app.route('/buscar_itens_manutencao_veiculo', methods=['POST'])
+def buscar_itens_manutencao_veiculo():
+    dados = request.get_json()
+    id_veiculo = dados.get('id_veiculo')
+
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas ADM pode acessar'}), 403
+
+    try:
+        cursor = con.cursor()
+
+        cursor.execute("""
+            SELECT 
+                im.id_item_manutencao,
+                im.id_manutencao,
+                s.descricao,
+                im.quantidade,
+                im.valor_total,
+                m.data
+            FROM item_manutencao im
+            INNER JOIN manutencao m ON im.id_manutencao = m.id_manutencao
+            INNER JOIN servico s ON im.id_servico = s.id_servico
+            WHERE m.id_veiculo = ?
+            ORDER BY m.data DESC
+        """, (id_veiculo,))
+
+        itens = cursor.fetchall()
+
+        lista_itens = []
+
+        for item in itens:
+            lista_itens.append({
+                'id_item_manutencao': item[0],
+                'id_manutencao': item[1],
+                'descricao': item[2],
+                'quantidade': item[3],
+                'valor_total': item[4],
+                'data': item[5]
+            })
+
+        return jsonify({'itens': lista_itens}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao buscar itens: {str(e)}'}), 500
+
+    finally:
+        cursor.close()
+
+
+
+
+
+
 @app.route('/buscar_historico_servico', methods=['POST'])
 def buscar_historico_servico():
     dados = request.get_json()
@@ -638,10 +713,15 @@ def atualizacao_preco():
 
     try:
         cursor = con.cursor()
+        print("aquii")
         dados = request.get_json()
+        print("DADOS RECEBIDOS:", dados)
         id_servico = int(dados.get('id_servico'))
-        tipo = dados.get('tipo')
+        tipo = int(dados.get('tipo'))
         porcentagem = float(dados.get('porcentagem'))
+        print(porcentagem)
+        print(tipo)
+        print(id_servico)
         if not dados:
             return jsonify({'mensagem': 'JSON inválido'}), 400
         print(porcentagem)
@@ -649,7 +729,7 @@ def atualizacao_preco():
         print(id_servico)
         cursor.execute(
             """EXECUTE PROCEDURE pr_atualiza_valor (?,?,?)""",
-            (tipo, id_servico, porcentagem)
+            (int(tipo), int(id_servico), float(porcentagem))
         )
 
         con.commit()
