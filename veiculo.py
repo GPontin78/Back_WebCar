@@ -1,7 +1,8 @@
-from flask import jsonify, request
+from flask import jsonify, request, send_from_directory
 from main import app, con
 from funcao import descobre_tipo_usuario
 import os
+
 
 @app.route("/adicionar_veiculo", methods=['POST'])
 def adicionar_veiculo():
@@ -303,3 +304,8 @@ def buscar_veiculo():
 
     finally:
         cursor.close()
+
+
+@app.route("/uploads/<path:filename>")
+def uploads(filename):
+    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
