@@ -5,7 +5,7 @@ import os
 
 @app.route("/adicionar_marca", methods=['POST'])
 def adicionar_marca():
-    nome = request.form.get('nome').capitalize()
+    nome = request.form.get('nome').title()
     imagem = request.files.get('imagem')
 
     tipo_usuario = descobre_tipo_usuario()
@@ -68,16 +68,23 @@ def edicao_marca(id_marca):
         if not existe_marca:
             return jsonify({'mensagem': 'Não existe marca'}), 404
 
-        nome = request.form.get('nome').capitalize()
-        imagem = request.files.get('imagem')
-        cursor.execute("""select nome from marca nome = ? """, (nome))
+        nome = request.form.get('nome').title()
 
         if not nome:
-            return jsonify({'mensagem': 'Digite uma nome'}), 400
-        nome_banco = cursor.fetchone()[0]
-        if nome_banco != nome:
-            return jsonify({'mensagem': 'Já existe esta marca'}), 404
+            return jsonify({'mensagem': 'Digite um nome'}), 400
 
+        nome = nome.capitalize().title()
+        imagem = request.files.get('imagem')
+
+        cursor.execute("""
+            SELECT nome 
+            FROM marca 
+            WHERE nome = ?
+        """, (nome,))
+        marca_existente = cursor.fetchone()
+
+        if marca_existente and marca_existente[0] != existe_marca[1]:
+            return jsonify({'mensagem': 'Já existe esta marca'}), 404
 
         cursor.execute("""
             UPDATE marca 
@@ -86,7 +93,6 @@ def edicao_marca(id_marca):
         """, (nome, id_marca))
 
         con.commit()
-
 
         if imagem:
             pasta = os.path.join(app.config['UPLOAD_FOLDER'], "marca")
@@ -104,6 +110,7 @@ def edicao_marca(id_marca):
 
     finally:
         cursor.close()
+
 
 @app.route('/deletar_marca/<int:id_marca>', methods=['DELETE'])
 def deletar_marca(id_marca):

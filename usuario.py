@@ -15,7 +15,7 @@ def adicionar_usuario():
     senha = request.form.get('senha')
     tipo = request.form.get('tipo')
     confirma = request.form.get('confirma')
-    imagem = request.files.get('imagem')
+    imagem = request.files.get('image')
 
     validado = validar_senha(senha)
 
@@ -211,7 +211,7 @@ def login():
                             secure=False,
                             samesite='Lax',
                             path="/",
-                            max_age=600)
+                            max_age=7200)
         return resposta
     except Exception as e:
         return jsonify({'mensagem': 'Erro no login'}), 500
