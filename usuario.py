@@ -1,4 +1,4 @@
-from flask import jsonify, request, make_response,  render_template
+from flask import jsonify, request, make_response,  render_template, send_from_directory
 from main import app, con
 from funcao import validar_senha, gerar_token,descobre_tipo_usuario, descobre_id_usuario, gerar_codigo,enviando_email,senha_repetida
 from flask_bcrypt import generate_password_hash,check_password_hash
@@ -28,11 +28,10 @@ def adicionar_usuario():
     if confirma != senha:
         return jsonify({'mensagem': 'Senhas não coincidem'}), 400
 
-
     tipo_usuario = descobre_tipo_usuario()
 
-    if tipo == "0" or tipo == "1" :
-        if tipo_usuario is None: # isso significa que a funcao returnou null entao, o usuario nao esta logado
+    if tipo == "0" or tipo == "1":
+        if tipo_usuario is None:
             return jsonify({'mensagem': 'usuario nao logado'}), 403
 
         if tipo_usuario != 0:
@@ -51,26 +50,21 @@ def adicionar_usuario():
 
         senha_hash = generate_password_hash(senha).decode('utf-8')
 
+        situacao_inicial = 0 if tipo in ("0", "1") else 2
+
         cursor.execute("""
-            INSERT INTO USUARIO (NOME, EMAIL, TELEFONE, CPF, SENHA, TIPO,SITUACAO, TENTATIVA)
-            VALUES (?, ?, ?, ?, ?, ?, 2, 1)
+            INSERT INTO USUARIO (NOME, EMAIL, TELEFONE, CPF, SENHA, TIPO, SITUACAO, TENTATIVA)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
             RETURNING ID_USUARIO
-        """, (nome, email, telefone, cpf, senha_hash, tipo))
+        """, (nome, email, telefone, cpf, senha_hash, tipo, situacao_inicial))
 
         id_usuario = cursor.fetchone()[0]
         con.commit()
-        cursor.execute("""
-        INSERT INTO historico_senha(id_usuario, senha_anterior)
-                       VALUES (?,?)""",(id_usuario, senha_hash))
-        con.commit()
-
-        codigo = gerar_codigo()
 
         cursor.execute("""
-                       INSERT INTO recuperacao_senha (id_usuario, codigo)
-                       VALUES (?, ?)
-                       """, (id_usuario, codigo))
-
+            INSERT INTO historico_senha(id_usuario, senha_anterior)
+            VALUES (?, ?)
+        """, (id_usuario, senha_hash))
         con.commit()
 
         if imagem:
@@ -80,16 +74,26 @@ def adicionar_usuario():
             caminho = os.path.join(pasta, f"{id_usuario}.jpg")
             imagem.save(caminho)
 
-        html = render_template('codigo_verificacao.html', codigo=codigo)
+        if tipo == "2":
+            codigo = gerar_codigo()
 
-        try:
-            thread = threading.Thread(
-                target=enviando_email,
-                args=(email, html)
-            )
-            thread.start()
-        except Exception as e:
-            return jsonify({"messagem": f"Erro ao enviar email: {e}"}), 500
+            cursor.execute("""
+                INSERT INTO recuperacao_senha (id_usuario, codigo)
+                VALUES (?, ?)
+            """, (id_usuario, codigo))
+
+            con.commit()
+
+            html = render_template('codigo_verificacao.html', codigo=codigo)
+
+            try:
+                thread = threading.Thread(
+                    target=enviando_email,
+                    args=(email, html)
+                )
+                thread.start()
+            except Exception as e:
+                return jsonify({"messagem": f"Erro ao enviar email: {e}"}), 500
 
         return jsonify({
             'mensagem': 'Usuário cadastrado com sucesso',
@@ -98,56 +102,6 @@ def adicionar_usuario():
 
     except Exception as e:
         return jsonify({'mensagem': f'Erro: {e}'}), 500
-
-    finally:
-        cursor.close()
-
-
-
-@app.route('/verificar_email', methods=['POST'])
-def verificar_email():
-    dados = request.get_json()
-    email = dados.get('email')
-    codigo = int(dados.get('codigo'))
-
-    try:
-        cursor = con.cursor()
-
-        cursor.execute("""
-            SELECT u.id_usuario, r.codigo
-            FROM usuario u
-            INNER JOIN recuperacao_senha r ON u.id_usuario = r.id_usuario
-            WHERE u.email = ?
-        """, (email,))
-
-        resultado = cursor.fetchone()
-
-        if not resultado:
-            return jsonify({'mensagem': 'Código inválido'}), 400
-
-        id_usuario = resultado[0]
-        codigo_banco = int(resultado[1])
-
-        if codigo != codigo_banco:
-            return jsonify({'mensagem': 'Código inválido'}), 400
-
-        cursor.execute("""
-            UPDATE usuario
-            SET situacao = 0
-            WHERE id_usuario = ?
-        """, (id_usuario,))
-
-        cursor.execute("""
-            DELETE FROM recuperacao_senha
-            WHERE id_usuario = ?
-        """, (id_usuario,))
-
-        con.commit()
-
-        return jsonify({'mensagem': 'Email verificado com sucesso'}), 200
-
-    except Exception as e:
-        return jsonify({'mensagem': f'Erro ao verificar email: {e}'}), 500
 
     finally:
         cursor.close()
@@ -493,7 +447,7 @@ def buscar_usuario():
         if nome:
             nome = nome.upper()
             cursor.execute("""
-                SELECT id_usuario, nome, email, cpf, telefone 
+                SELECT id_usuario, nome, email, cpf, telefone, tipo, situacao
                 FROM usuario 
                 WHERE upper(nome) LIKE ?
             """, (f'%{nome}%',))
@@ -501,14 +455,14 @@ def buscar_usuario():
 
         elif id_usuario:
             cursor.execute("""
-                SELECT id_usuario, nome, email, cpf, telefone 
-                FROM usuario 
+                SELECT id_usuario, nome, email, cpf, telefone, tipo, situacao
+                FROM usuario
                 WHERE id_usuario = ?
             """, (id_usuario,))
 
         else:
             cursor.execute("""
-                SELECT id_usuario, nome, email, cpf, telefone 
+                SELECT id_usuario, nome, email, cpf, telefone, tipo, situacao
                 FROM usuario
             """)
 
@@ -520,7 +474,11 @@ def buscar_usuario():
                 'nome': usuario[1],
                 'email': usuario[2],
                 'cpf': usuario[3],
-                'telefone': usuario[4]
+                'telefone': usuario[4],
+                'tipo': usuario[5],
+                'situacao': usuario[6],
+                'imagem': f'{request.host_url}uploads/Usuarios/{usuario[0]}.jpg'
+
             })
 
         if not lista_usuarios:
@@ -534,6 +492,10 @@ def buscar_usuario():
     finally:
         cursor.close()
 
+@app.route('/uploads/Usuarios/<arquivo>', methods=['GET'])
+def imagem_usuario(arquivo):
+    pasta = os.path.join(app.config['UPLOAD_FOLDER'], "Usuarios")
+    return send_from_directory(pasta, arquivo)
 
 @app.route('/alterar_situacao/<int:id_usuario>', methods=['PUT'])
 def alterar_situacao(id_usuario):

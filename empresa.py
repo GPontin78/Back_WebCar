@@ -186,3 +186,4 @@ def deletar_empresa(id_empresa):
 
     finally:
         cursor.close()
+
