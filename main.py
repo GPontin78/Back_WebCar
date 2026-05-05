@@ -38,6 +38,7 @@ from usuario import *
 from veiculo import *
 from manutencao import *
 from marca import *
+from empresa import *
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

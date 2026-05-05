@@ -59,34 +59,41 @@ def edicao_marca(id_marca):
         cursor = con.cursor()
 
         cursor.execute("""
-            SELECT id_marca, nome       
-            FROM marca 
+            SELECT id_marca, nome      
+            FROM marca
             WHERE id_marca = ?
         """, (id_marca,))
+
         existe_marca = cursor.fetchone()
 
         if not existe_marca:
             return jsonify({'mensagem': 'Não existe marca'}), 404
 
-        nome = request.form.get('nome').capitalize()
-        imagem = request.files.get('imagem')
-        cursor.execute("""select nome from marca nome = ? """, (nome))
+        nome = request.form.get('nome')
 
         if not nome:
-            return jsonify({'mensagem': 'Digite uma nome'}), 400
-        nome_banco = cursor.fetchone()[0]
-        if nome_banco != nome:
-            return jsonify({'mensagem': 'Já existe esta marca'}), 404
+            return jsonify({'mensagem': 'Digite um nome'}), 400
 
+        nome = nome.strip().capitalize()
+        imagem = request.files.get('imagem')
 
         cursor.execute("""
-            UPDATE marca 
+            SELECT id_marca
+            FROM marca
+            WHERE upper(nome) = upper(?)
+              AND id_marca <> ?
+        """, (nome, id_marca))
+
+        if cursor.fetchone():
+            return jsonify({'mensagem': 'Já existe esta marca'}), 400
+
+        cursor.execute("""
+            UPDATE marca
             SET nome = ?  
             WHERE id_marca = ?
         """, (nome, id_marca))
 
         con.commit()
-
 
         if imagem:
             pasta = os.path.join(app.config['UPLOAD_FOLDER'], "marca")
@@ -104,6 +111,7 @@ def edicao_marca(id_marca):
 
     finally:
         cursor.close()
+
 
 @app.route('/deletar_marca/<int:id_marca>', methods=['DELETE'])
 def deletar_marca(id_marca):

@@ -96,12 +96,7 @@ def edicao_servico(id_servico):
 
         print("7")
 
-        print('pontin ramelou')
-        print(valor_antigo)
-        print(valor_unitario)
-
-        if float(valor_antigo) != float(valor_unitario):
-            print('entrei')
+        if valor_antigo != valor_unitario:
             data_atual = datetime.now()
             print("8")
             cursor.execute("""
@@ -123,6 +118,7 @@ def edicao_servico(id_servico):
         cursor.close()
 
 
+
 @app.route('/deletar_servico/<int:id_servico>', methods=['DELETE'])
 def deletar_servico(id_servico):
     tipo_usuario = descobre_tipo_usuario()
@@ -135,7 +131,7 @@ def deletar_servico(id_servico):
                         from servico where id_servico=?""", (id_servico,))
     existe_servico = cursor.fetchone()
     if not existe_servico:
-        return jsonify({'mensagem': 'Não existe serviço'}), 404
+        return jsonify({'mensagem': 'Não existe serviço'})
     try:
         cursor = con.cursor()
         cursor.execute("""delete from servico where id_servico=?""",
@@ -143,7 +139,7 @@ def deletar_servico(id_servico):
         con.commit()
         return jsonify({'mensagem': 'Servico deletado com sucesso'})
     except Exception as e:
-        return jsonify({'mensagem': 'erro ao deletar servico em mais de uma tabela'}), 404
+        return jsonify({'mensagem': 'Erro ao deletar servico'})
     finally:
         cursor.close()
 

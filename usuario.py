@@ -580,3 +580,5 @@ def alterar_situacao(id_usuario):
 
     except Exception as e:
         return jsonify({'erro no mudar situação'}), 500
+
+
