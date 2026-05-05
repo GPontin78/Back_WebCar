@@ -15,7 +15,7 @@ def adicionar_usuario():
     senha = request.form.get('senha')
     tipo = request.form.get('tipo')
     confirma = request.form.get('confirma')
-    imagem = request.files.get('image')
+    imagem = request.files.get('imagem')
 
     validado = validar_senha(senha)
 

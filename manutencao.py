@@ -44,10 +44,12 @@ def adicionar_servico():
 @app.route('/edicao_servico/<int:id_servico>', methods=['PUT'])
 def edicao_servico(id_servico):
     tipo_usuario = descobre_tipo_usuario()
+    print(id_servico)
+    print("1")
 
     if tipo_usuario != 0:
         return jsonify({'mensagem': 'Apenas Adm pode editar'}), 403
-
+    print("2")
     cursor = con.cursor()
 
     try:
@@ -58,24 +60,36 @@ def edicao_servico(id_servico):
         """, (id_servico,))
         existe_servico = cursor.fetchone()
 
+        print("3")
+
+        print(existe_servico)
         if not existe_servico:
             return jsonify({'mensagem': 'Não existe serviço'}), 404
 
+        print('3.3')
 
-
-        valor_antigo = float(existe_servico[2])
+        valor_antigo = existe_servico[2]
+        print('3.4')
 
         dados = request.get_json()
-        descricao = dados.get('descricao').capitalize()
-        valor_unitario = float(dados.get('valor_unitario'))
+        descricao = dados.get('descricao', existe_servico[1]).title()
+        valor_unitario = float(dados.get('valor_unitario', existe_servico[2]))
+        print(descricao)
+        print(valor_unitario)
+        print("4")
 
         cursor.execute("""select descricao from servico where descricao = ?""", (descricao,))
 
         descricao_banco = cursor.fetchone()[0]
+
+        print("5")
+
         if descricao_banco != descricao:
             cursor.execute("""select 1 from servico where descricao = ?""", (descricao,))
             if cursor.fetchone():
                 return jsonify({'mensagem': 'Serviço já existe', }), 200
+
+        print("6")
 
         cursor.execute("""
             update servico
@@ -83,17 +97,20 @@ def edicao_servico(id_servico):
             where id_servico = ? 
         """, (descricao, valor_unitario, id_servico))
 
+        print("7")
+
         if valor_antigo != valor_unitario:
             data_atual = datetime.now()
-            print("aq")
+            print("8")
             cursor.execute("""
                 insert into historico_servico(id_servico, valor_unitario, data_historico)
                 values (?, ?, ?)
             """, (id_servico, valor_antigo, data_atual))
-            print("aq11")
+            print("9")
             con.commit()
-            print("aq2")
+            print("10")
         con.commit()
+        print("11")
 
         return jsonify({'mensagem': 'Serviço atualizado com sucesso'}), 200
 
@@ -316,30 +333,33 @@ def deletar_manutencao(id_manutencao):
         return jsonify({'mensagem': 'Apenas Adm pode editar'}), 403
 
     cursor = con.cursor()
+    print("1")
     cursor.execute("""select id_manutencao, id_veiculo, valor_total, data       
                         from manutencao where id_manutencao=?""", (id_manutencao,))
     existe_manutencao = cursor.fetchone()
+    print("2")
+    print(existe_manutencao)
     if not existe_manutencao:
         return jsonify({'mensagem': 'Não existe manutenção'})
+
     try:
         cursor = con.cursor()
 
         cursor.execute("""select data from manutencao where id_manutencao = ?""", (id_manutencao,))
         data = cursor.fetchone()[0]
+        print(data)
         data_atual = datetime.now().date()
-        data = datetime.strptime(data, "%d/%m/%Y").date()
 
         if data < data_atual:
             return jsonify({
                 'mensagem': 'Não é possível deletar manutencao com data retroativa'
             }), 403
-
         cursor.execute("""delete from manutencao where id_manutencao=?""",
                        (id_manutencao,))
         con.commit()
         return jsonify({'mensagem': 'Manutenção deletado com sucesso'})
     except Exception as e:
-        return jsonify({'mensagem': 'erro ao deletar manutenção em mais de uma tabela'})
+        return jsonify({'mensagem': 'Erro ao deletar manutenção'}), 500
     finally:
         cursor.close()
 

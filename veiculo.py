@@ -212,10 +212,10 @@ def deletar_veiculo(id_veiculo):
         print('aq')
         cursor.execute('delete from veiculo where id_veiculo = ?', (id_veiculo,))
         con.commit()
-        return jsonify({'mensagem': 'Veículo deletado com sucesso'})
+        return jsonify({'mensagem': 'Veículo deletado com sucesso'}), 300
 
     except Exception as e:
-        return jsonify({'mensagem': 'erro ao deletar veiculo, em mais de uma tabela'})
+        return jsonify({'mensagem': 'Erro ao deletar veiculo'}), 500
     finally:
         cursor.close()
 
