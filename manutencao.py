@@ -77,15 +77,12 @@ def edicao_servico(id_servico):
         print(descricao)
         print(valor_unitario)
         print("4")
+        print(existe_servico[1])
 
-        cursor.execute("""select descricao from servico where descricao = ?""", (descricao,))
 
-        descricao_banco = cursor.fetchone()[0]
-
-        print("5")
-
-        if descricao_banco != descricao:
+        if existe_servico[1] != descricao:
             cursor.execute("""select 1 from servico where descricao = ?""", (descricao,))
+            print(descricao)
             if cursor.fetchone():
                 return jsonify({'mensagem': 'Serviço já existe', }), 200
 
@@ -99,7 +96,12 @@ def edicao_servico(id_servico):
 
         print("7")
 
-        if valor_antigo != valor_unitario:
+        print('pontin ramelou')
+        print(valor_antigo)
+        print(valor_unitario)
+
+        if float(valor_antigo) != float(valor_unitario):
+            print('entrei')
             data_atual = datetime.now()
             print("8")
             cursor.execute("""
@@ -121,7 +123,6 @@ def edicao_servico(id_servico):
         cursor.close()
 
 
-
 @app.route('/deletar_servico/<int:id_servico>', methods=['DELETE'])
 def deletar_servico(id_servico):
     tipo_usuario = descobre_tipo_usuario()
@@ -134,7 +135,7 @@ def deletar_servico(id_servico):
                         from servico where id_servico=?""", (id_servico,))
     existe_servico = cursor.fetchone()
     if not existe_servico:
-        return jsonify({'mensagem': 'Não existe serviço'})
+        return jsonify({'mensagem': 'Não existe serviço'}), 404
     try:
         cursor = con.cursor()
         cursor.execute("""delete from servico where id_servico=?""",
@@ -142,7 +143,7 @@ def deletar_servico(id_servico):
         con.commit()
         return jsonify({'mensagem': 'Servico deletado com sucesso'})
     except Exception as e:
-        return jsonify({'mensagem': 'erro ao deletar servico em mais de uma tabela'})
+        return jsonify({'mensagem': 'erro ao deletar servico em mais de uma tabela'}), 404
     finally:
         cursor.close()
 
