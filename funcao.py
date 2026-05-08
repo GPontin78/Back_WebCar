@@ -7,8 +7,8 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from flask_bcrypt import check_password_hash
-
-
+import qrcode
+import os
 
 senha_secreta = app.config['SECRET_KEY']
 
@@ -126,3 +126,214 @@ def senha_repetida(id_usuario, nova_senha):
         if check_password_hash(senha[0], nova_senha):
             return True
     return False
+
+
+
+
+
+
+
+
+
+# =========================================================
+# FORMATA OS CAMPOS NO PADRÃO PIX
+# =========================================================
+def format_field(id, value):
+
+    # pega tamanho do valor
+    size = f"{len(value):02d}"
+
+    # retorna:
+    # ID + TAMANHO + VALOR
+    return f"{id}{size}{value}"
+
+
+# =========================================================
+# GERA ASSINATURA CRC16
+# =========================================================
+def crc16(payload):
+
+    # polinômio padrão
+    polinomio = 0x1021
+
+    # valor inicial
+    resultado = 0xFFFF
+
+    # percorre payload
+    for c in payload:
+
+        resultado ^= (ord(c) << 8)
+
+        # percorre bits
+        for _ in range(8):
+
+            # verifica bit mais significativo
+            if resultado & 0x8000:
+
+                resultado = (resultado << 1) ^ polinomio
+
+            else:
+
+                resultado <<= 1
+
+            # limita em 16 bits
+            resultado &= 0xFFFF
+
+    # retorna hexadecimal
+    return f"{resultado:04X}"
+
+
+# =========================================================
+# GERA PAYLOAD PIX
+# =========================================================
+def gerar_payload_pix(
+    chave,
+    nome,
+    cidade,
+    valor,
+    txid="***"
+):
+
+    # inicia payload
+    payload = ""
+
+    # versão do PIX
+    payload += format_field("00", "01")
+
+    # =====================================================
+    # DADOS DA CONTA PIX
+    # =====================================================
+    merchant_account = ""
+
+    # identificador PIX BACEN
+    merchant_account += format_field(
+        "00",
+        "br.gov.bcb.pix"
+    )
+
+    # chave PIX
+    merchant_account += format_field(
+        "01",
+        chave
+    )
+
+    # adiciona conta no payload
+    payload += format_field(
+        "26",
+        merchant_account
+    )
+
+    # categoria da conta
+    payload += format_field("52", "0000")
+
+    # moeda BRL
+    payload += format_field("53", "986")
+
+    # valor do PIX
+    payload += format_field(
+        "54",
+        f"{valor:.2f}"
+    )
+
+    # país
+    payload += format_field("58", "BR")
+
+    # nome da empresa
+    payload += format_field(
+        "59",
+        nome[:25]
+    )
+
+    # cidade
+    payload += format_field(
+        "60",
+        cidade[:15]
+    )
+
+    # =====================================================
+    # TXID
+    # =====================================================
+    additional = format_field(
+        "05",
+        txid
+    )
+
+    payload += format_field(
+        "62",
+        additional
+    )
+
+    # prepara CRC16
+    payload += "6304"
+
+    # gera CRC16
+    crc = crc16(payload)
+
+    # adiciona CRC16
+    payload += crc
+
+    # retorna payload
+    return payload
+
+
+# =========================================================
+# GERA IMAGEM QR CODE
+# =========================================================
+def gerar_qrcode(payload, nome_arquivo, pasta):
+
+    # cria pasta automaticamente
+    os.makedirs(
+        f"uploads/pagamento/{pasta}",
+        exist_ok=True
+    )
+
+    # gera QR Code
+    qr = qrcode.make(payload)
+
+    # caminho da imagem
+    caminho = os.path.join(
+        "uploads",
+        "pagamento",
+        pasta,
+        f"{nome_arquivo}.png"
+    )
+
+    # salva imagem
+    qr.save(caminho)
+
+    # retorna caminho
+    return caminho
+
+
+# =========================================================
+# FUNÇÃO PRINCIPAL
+# =========================================================
+def gerar_pix(
+    chave,
+    nome,
+    cidade,
+    valor,
+    pasta,
+    txid="***"
+):
+
+    # gera payload PIX
+    payload = gerar_payload_pix(
+        chave=chave,
+        nome=nome,
+        cidade=cidade,
+        valor=valor,
+        txid=txid
+    )
+
+    # gera imagem QR Code
+    caminho_imagem = gerar_qrcode(
+        payload,
+        f"{txid}",
+        pasta
+    )
+
+    # retorna caminho da imagem
+    return {
+        "imagem": caminho_imagem
+    }
