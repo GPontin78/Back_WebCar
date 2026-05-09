@@ -3,8 +3,6 @@ from main import app, con
 from funcao import descobre_tipo_usuario, descobre_id_usuario, gerar_pix
 from datetime import datetime, timedelta
 
-import os
-
 @app.route('/adicionar_venda', methods=['POST'])
 def adicionar_venda():
 
@@ -133,6 +131,239 @@ def adicionar_venda():
     except Exception as e:
 
         return jsonify({'mensagem': f'Erro ao concluir venda: {str(e)}'}), 500
+
+
+@app.route('/adicionar_receita', methods=['POST'])
+def adicionar_receita():
+    dados = request.get_json()
+    descricao = dados.get('descricao').capitalize()
+    valor =  float(dados.get('valor'))
+    data_receita = dados.get('data_receita')
+
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas Adm pode cadastrar'}), 403
+
+    try:
+        cursor = con.cursor()
+        if not descricao:
+            return jsonify({'mensagem': 'Digite uma descrição', }), 400
+        if not valor:
+            return jsonify({'mensagem': 'Digite um valor', }), 400
+        if not data_receita:
+            return jsonify({'mensagem': 'Digite uma data', }), 400
+
+        print("1")
+        print(descricao)
+        print(valor)
+        print(data_receita)
+        data_receita = datetime.strptime(data_receita, "%d/%m/%Y").date()
+        print(data_receita)
+
+        cursor.execute("""insert into receita (descricao, valor, data_receita) 
+                          values(?,?,?)""", (descricao, valor , data_receita))
+        con.commit()
+
+        return jsonify({'mensagem': 'Receita cadastrada com sucesso',}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao cadastrar Receita'}), 500
+    finally:
+        cursor.close()
+
+@app.route('/edicao_receita/<int:id_receita>', methods=['PUT'])
+def edicao_receita(id_receita):
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas Adm pode editar'}), 403
+
+    cursor = con.cursor()
+
+    try:
+        cursor.execute("""
+            select id_receita, descricao, valor, data_receita
+            from receita
+            where id_receita = ?
+        """, (id_receita,))
+
+        existe_receita = cursor.fetchone()
+
+        if not existe_receita:
+            return jsonify({'mensagem': 'Receita não encontrada'}), 404
+
+        dados = request.get_json()
+
+        descricao = dados.get('descricao', existe_receita[1]).capitalize()
+        valor = float(dados.get('valor', existe_receita[2]))
+        data_receita = dados.get('data_receita')
+
+        if data_receita:
+            data_receita = datetime.strptime(data_receita, "%d/%m/%Y").date()
+        else:
+            data_receita = existe_receita[3]
+
+
+        cursor.execute("""
+            update receita
+            set descricao = ?, valor = ?, data_receita = ?
+            where id_receita = ?
+        """, (descricao, valor, data_receita, id_receita))
+
+        con.commit()
+
+        return jsonify({'mensagem': 'Receita atualizada com sucesso'}), 200
+
+    except Exception as e:
+        return jsonify({
+            'mensagem': f'Erro ao editar receita: {str(e)}'
+        }), 500
+
+    finally:
+        cursor.close()
+
+@app.route('/deletar_receita/<int:id_receita>', methods=['DELETE'])
+def deletar_receita(id_receita):
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas Adm pode deletar'}), 403
+
+    cursor = con.cursor()
+    cursor.execute("""select id_receita, descricao, valor, data_receita       
+                        from receita where id_receita=?""", (id_receita,))
+    existe_receita = cursor.fetchone()
+    if not existe_receita:
+        return jsonify({'mensagem': 'Não existe despesa'})
+    try:
+        cursor = con.cursor()
+        cursor.execute("""delete from receita where id_receita=?""",
+                       (id_receita,))
+        con.commit()
+        return jsonify({'mensagem': 'Receita deletada com sucesso'})
+    except Exception as e:
+        return jsonify({'mensagem': 'Erro ao deletar Receita'})
+    finally:
+        cursor.close()
+
+
+
+@app.route('/adicionar_despesa', methods=['POST'])
+def adicionar_despesa():
+    dados = request.get_json()
+    descricao = dados.get('descricao').capitalize()
+    valor =  float(dados.get('valor'))
+    data_despesa = dados.get('data_despesa')
+
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas Adm pode cadastrar'}), 403
+
+    try:
+        cursor = con.cursor()
+        if not descricao:
+            return jsonify({'mensagem': 'Digite uma descrição', }), 400
+        if not valor:
+            return jsonify({'mensagem': 'Digite um valor', }), 400
+        if not data_despesa:
+            return jsonify({'mensagem': 'Digite uma data', }), 400
+
+        print("1")
+        print(descricao)
+        print(valor)
+        print(data_despesa)
+        data_despesa = datetime.strptime(data_despesa, "%d/%m/%Y").date()
+        print(data_despesa)
+
+        cursor.execute("""insert into despesa (descricao, valor, data_despesa) 
+                          values(?,?,?)""", (descricao, valor , data_despesa))
+        con.commit()
+
+        return jsonify({'mensagem': 'Despesa cadastrada com sucesso',}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao cadastrar Despesa'}), 500
+    finally:
+        cursor.close()
+
+
+@app.route('/edicao_despesa/<int:id_despesa>', methods=['PUT'])
+def edicao_despesa(id_despesa):
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas Adm pode editar'}), 403
+
+    cursor = con.cursor()
+
+    try:
+        cursor.execute("""
+            select id_despesa, descricao, valor, data_despesa
+            from despesa
+            where id_despesa = ?
+        """, (id_despesa,))
+
+        existe_despesa = cursor.fetchone()
+
+        if not existe_despesa:
+            return jsonify({'mensagem': 'Despesa não encontrada'}), 404
+
+        dados = request.get_json()
+
+        descricao = dados.get('descricao', existe_despesa[1]).capitalize()
+        valor = float(dados.get('valor', existe_despesa[2]))
+        data_despesa = dados.get('data_despesa')
+
+        if data_despesa:
+            data_despesa = datetime.strptime(data_despesa, "%d/%m/%Y").date()
+        else:
+            data_despesa = existe_despesa[3]
+
+
+        cursor.execute("""
+            update despesa
+            set descricao = ?, valor = ?, data_despesa = ?
+            where id_despesa = ?
+        """, (descricao, valor, data_despesa, id_despesa))
+
+        con.commit()
+
+        return jsonify({'mensagem': 'Despesa atualizada com sucesso'}), 200
+
+    except Exception as e:
+        return jsonify({
+            'mensagem': f'Erro ao editar despesa: {str(e)}'
+        }), 500
+
+    finally:
+        cursor.close()
+
+@app.route('/deletar_depesa/<int:id_despesa>', methods=['DELETE'])
+def deletar_depesa(id_despesa):
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas Adm pode deletar'}), 403
+
+    cursor = con.cursor()
+    cursor.execute("""select id_despesa, descricao, valor, data_despesa       
+                        from despesa where id_despesa=?""", (id_despesa,))
+    existe_despesa = cursor.fetchone()
+    if not existe_despesa:
+        return jsonify({'mensagem': 'Não existe despesa'})
+    try:
+        cursor = con.cursor()
+        cursor.execute("""delete from despesa where id_despesa=?""",
+                       (id_despesa,))
+        con.commit()
+        return jsonify({'mensagem': 'Despesa deletada com sucesso'})
+    except Exception as e:
+        return jsonify({'mensagem': 'Erro ao deletar Despesa'})
+    finally:
+        cursor.close()
+
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
