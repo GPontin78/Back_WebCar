@@ -102,12 +102,21 @@ def adicionar_venda():
             juro = porcentagem_juro_banco / 100
             parcela_mensal_juro = float(valor * juro / (1 - (1 + juro) ** -parcela))
             valor_venda_financiamento = float(parcela_mensal_juro * parcela)
+            print("aquiii")
 
             cursor.execute("""INSERT INTO venda(id_usuario_cliente, id_usuario_vendedor, id_veiculo, data_venda, valor_venda, forma_pagamento)
                               VALUES(?,?,?,?,?,1) RETURNING ID_VENDA""",
                 (id_usuario_cliente, descobre_id_usuario(), id_veiculo, data_venda, valor_venda_financiamento,forma_pagamento))
-
             id_venda = cursor.fetchone()[0]
+            print("aquiii2222")
+
+            cursor.execute(""" INSERT INTO FINANCIAMENTO(ID_VENDA, DATA_FINANCIAMENTO, VALOR_VENDA,
+                                VALOR_VENDA_FINANCIAMENTO)
+                                VALUES(?,?,?,?) RETURNING ID_FINANCIAMENTO""",
+                                    (id_venda, data_venda, valor, valor_venda_financiamento))
+            id_financiamento = cursor.fetchone()[0]
+            print("aquiii333333333")
+
 
             for numero_parcela in range(1, parcela + 1):
                 data_vencimento = data_venda + timedelta(days=30 * numero_parcela)
@@ -121,8 +130,9 @@ def adicionar_venda():
                     txid=f"V{id_venda}P{numero_parcela}"
                 )
 
-                cursor.execute("""INSERT INTO financiamento(id_venda, numero_parcela, valor_parcela, data_vencimento) VALUES(?,?,?,?)""",
-                    (id_venda, numero_parcela, parcela_mensal_juro, data_vencimento))
+                cursor.execute("""INSERT INTO item_financiamento(id_financiamento, numero_parcela, 
+                                valor_parcela, data_vencimento) VALUES(?,?,?,?)""",
+                    (id_financiamento, numero_parcela, parcela_mensal_juro, data_vencimento))
 
             cursor.execute("""UPDATE veiculo SET status = ? WHERE id_veiculo = ?""", (2, id_veiculo))
             con.commit()
