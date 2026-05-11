@@ -62,7 +62,7 @@ def adicionar_venda():
         nome_empresa = empresa[3]
         cidade_empresa = empresa[4]
 
-        if forma_pagamento != 0 or 1:
+        if forma_pagamento != 0 and forma_pagamento != 1:
            return jsonify({'mensagem': 'Selecione uma forma de pagamento válida'}), 400
 
 

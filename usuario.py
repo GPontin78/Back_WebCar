@@ -544,3 +544,55 @@ def alterar_situacao(id_usuario):
         return jsonify({'erro no mudar situação'}), 500
 
 
+@app.route('/verificar_email', methods=['POST'])
+def verificar_email():
+    dados = request.get_json()
+    email = dados.get('email')
+    codigo = dados.get('codigo')
+
+    if not email or not codigo:
+        return jsonify({'mensagem': 'Email e código são obrigatórios'}), 400
+
+    try:
+        cursor = con.cursor()
+
+        cursor.execute("""
+            SELECT u.id_usuario, r.codigo
+            FROM usuario u
+            INNER JOIN recuperacao_senha r ON u.id_usuario = r.id_usuario
+            WHERE u.email = ?
+        """, (email.lower(),))
+
+        resultado = cursor.fetchone()
+
+        if not resultado:
+            return jsonify({'mensagem': 'Código inválido'}), 400
+
+        id_usuario = resultado[0]
+        codigo_banco = str(resultado[1])
+
+        if str(codigo) != codigo_banco:
+            return jsonify({'mensagem': 'Código inválido'}), 400
+
+        cursor.execute("""
+            UPDATE usuario
+            SET situacao = 0
+            WHERE id_usuario = ?
+        """, (id_usuario,))
+
+        cursor.execute("""
+            DELETE FROM recuperacao_senha
+            WHERE id_usuario = ?
+        """, (id_usuario,))
+
+        con.commit()
+
+        return jsonify({'mensagem': 'Email verificado com sucesso'}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao verificar email: {e}'}), 500
+
+    finally:
+        cursor.close()
+
+
