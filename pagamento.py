@@ -375,6 +375,33 @@ def deletar_depesa(id_despesa):
         cursor.close()
 
 
+@app.route('/adicionar_baixa/<int:id_financiamento>', methods=['PUT'])
+def adicionar_baixa(id_financiamento):
+    dados = request.get_json()
+
+    parcela = int(dados.get('parcela'))
+
+    try:
+        cursor = con.cursor()
+        if not parcela:
+            return jsonify({'mensagem': 'Digite uma parcela '})
+
+        data_pagamento = datetime.now().date()
+
+        cursor.execute("""update item_financiamento set data_pagamento = ?, status = ?
+                            where numero_parcela = ? and id_financiamento = ?
+        """, (data_pagamento, 1, parcela, id_financiamento))
+
+        con.commit()
+
+        return jsonify({'mensagem': 'Baixa realizada com sucesso'}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao adicionar baixa: {str(e)}'})
+
+
+
+
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory('uploads', filename)
