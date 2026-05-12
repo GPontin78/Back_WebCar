@@ -57,7 +57,6 @@ def adicionar_venda():
 
         desconto_a_vista_banco = float(empresa[0])
         porcentagem_juro_banco = float(empresa[1])
-
         chave_pix = empresa[2]
         nome_empresa = empresa[3]
         cidade_empresa = empresa[4]
@@ -104,9 +103,9 @@ def adicionar_venda():
             valor = preco_venda
             juro = porcentagem_juro_banco / 100
             parcela_mensal_juro = float(valor * juro / (1 - (1 + juro) ** -parcela))
-            valor_venda_financiamento = float(parcela_mensal_juro * parcela)
+            valor_venda_financiamento = round(float(parcela_mensal_juro * parcela),2 )
             print("aquiii")
-
+            print(valor_venda_financiamento)
             cursor.execute("""INSERT INTO venda(id_usuario_cliente, id_usuario_vendedor, id_veiculo, data_venda, valor_venda, forma_pagamento)
                               VALUES(?,?,?,?,?,1) RETURNING ID_VENDA""",
                 (id_usuario_cliente, descobre_id_usuario(), id_veiculo, data_venda, valor_venda_financiamento,forma_pagamento))
@@ -119,6 +118,8 @@ def adicionar_venda():
                                     (id_venda, data_venda, valor, valor_venda_financiamento))
             id_financiamento = cursor.fetchone()[0]
             print("aquiii333333333")
+            print(1/3)
+            print(parcela_mensal_juro)
 
 
             for numero_parcela in range(1, parcela + 1):
@@ -130,13 +131,12 @@ def adicionar_venda():
                     cidade=cidade_empresa,
                     valor=parcela_mensal_juro,
                     pasta="financiamento",
-                    txid=f"V{id_venda}P{numero_parcela}"
+                    txid=f"F{id_financiamento}P{numero_parcela}"
                 )
 
                 cursor.execute("""INSERT INTO item_financiamento(id_financiamento, numero_parcela, 
                                 valor_parcela, data_vencimento) VALUES(?,?,?,?)""",
                     (id_financiamento, numero_parcela, parcela_mensal_juro, data_vencimento))
-
             cursor.execute("""UPDATE veiculo SET status = ? WHERE id_veiculo = ?""", (2, id_veiculo))
             con.commit()
             return jsonify({'mensagem': 'Venda concluída com sucesso'}), 200
