@@ -70,8 +70,10 @@ def adicionar_venda():
 
             valor_venda_desconto = float(preco_venda - (preco_venda * (desconto_a_vista_banco / 100)))
 
-            cursor.execute("""INSERT INTO venda(id_usuario_cliente, id_veiculo, data_venda, valor_venda, forma_pagamento) VALUES(?,?,?,?,0) RETURNING ID_VENDA""",
-                           (id_usuario_cliente_avista, id_veiculo, data_venda, valor_venda_desconto, forma_pagamento))
+            cursor.execute("""INSERT INTO venda(id_usuario_cliente, id_veiculo, data_venda, 
+                            valor_venda, forma_pagamento, id_usuario_vendedor) 
+                            VALUES(?,?,?,?,?,?) RETURNING ID_VENDA""",
+                           (id_usuario_cliente, id_veiculo, data_venda, valor_venda_desconto, forma_pagamento, id_usuario_cliente_avista))
 
             id_venda = cursor.fetchone()[0]
 
@@ -87,9 +89,10 @@ def adicionar_venda():
             cursor.execute("""UPDATE veiculo SET status = ? WHERE id_veiculo = ?""", (2, id_veiculo))
 
             descricao = f'Veículo vendido: {nome_marca} {modelo}'
-
-            cursor.execute("""INSERT INTO receita(id_venda, descricao, valor, data_receita) VALUES(?,?,?,?)""",
-                           (id_venda, descricao, valor_venda_desconto, data_venda))
+            tabela = 'VENDA'.upper()
+            cursor.execute("""INSERT INTO receita(id_tabela, descricao, valor, data_receita, tabela, status) 
+                            VALUES(?,?,?,?,?,?)""",
+                           (id_venda, descricao, valor_venda_desconto, data_venda, tabela, status ))
 
             con.commit()
 
@@ -378,8 +381,11 @@ def deletar_depesa(id_despesa):
 @app.route('/adicionar_baixa/<int:id_financiamento>', methods=['PUT'])
 def adicionar_baixa(id_financiamento):
     dados = request.get_json()
-
     parcela = int(dados.get('parcela'))
+
+    tipo_usuario = descobre_tipo_usuario()
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas Adm pode cadastrar'}), 403
 
     try:
         cursor = con.cursor()
@@ -387,6 +393,11 @@ def adicionar_baixa(id_financiamento):
             return jsonify({'mensagem': 'Digite uma parcela '})
 
         data_pagamento = datetime.now().date()
+
+        cursor.execute(""" select numero_parcela from item_financiamento 
+                            where numero_parcela = ? and id_financiamento = ? """,(parcela, id_financiamento))
+        if not cursor.fetchone():
+            return jsonify({'mensagem': 'Selecione uma parcela válida'})
 
         cursor.execute("""update item_financiamento set data_pagamento = ?, status = ?
                             where numero_parcela = ? and id_financiamento = ?
@@ -400,6 +411,37 @@ def adicionar_baixa(id_financiamento):
         return jsonify({'mensagem': f'Erro ao adicionar baixa: {str(e)}'})
 
 
+@app.route('/retirar_baixa/<int:id_financiamento>', methods=['PUT'])
+def retirar_baixa(id_financiamento):
+    dados = request.get_json()
+    parcela = int(dados.get('parcela'))
+
+    tipo_usuario = descobre_tipo_usuario()
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas Adm pode cadastrar'}), 403
+
+    try:
+        cursor = con.cursor()
+        if not parcela:
+            return jsonify({'mensagem': 'Digite uma parcela '})
+
+        data_pagamento = datetime.now().date()
+
+        cursor.execute(""" select numero_parcela from item_financiamento 
+                            where numero_parcela = ? and id_financiamento = ? """, (parcela, id_financiamento))
+        if not cursor.fetchone():
+            return jsonify({'mensagem': 'Selecione uma parcela válida'})
+
+        cursor.execute("""update item_financiamento set data_pagamento = ?, status = ?
+                            where numero_parcela = ? and id_financiamento = ?
+        """, (data_pagamento, 0 , parcela, id_financiamento))
+
+        con.commit()
+
+        return jsonify({'mensagem': 'Baixa retirarada com sucesso'}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao retirar baixa: {str(e)}'})
 
 
 @app.route('/uploads/<filename>')

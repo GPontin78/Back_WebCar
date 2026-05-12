@@ -127,6 +127,12 @@ def edicao_veiculo(id_veiculo):
         if cursor.fetchone():
             return jsonify({'mensagem': 'Placa já cadastrada'}), 400
 
+        cursor.execute(""" SELECT STATUS FROM VEICULO WHERE ID_VEICULO = ?""",(id_veiculo,))
+        veiculo = cursor.fetchone()
+        status = veiculo[0]
+        if status == 2:
+            return jsonify({'mensagem': 'Veículo vendido não pode ser editado.'}), 404
+
         cursor.execute("""
             UPDATE VEICULO
             SET 
