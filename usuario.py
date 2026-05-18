@@ -89,7 +89,7 @@ def adicionar_usuario():
             try:
                 thread = threading.Thread(
                     target=enviando_email,
-                    args=(email, html)
+                    args=(email, "Código de Verificação - WebCar", html)
                 )
                 thread.start()
             except Exception as e:
@@ -111,132 +111,234 @@ def login():
     dados = request.get_json()
     email = dados.get('email').lower()
     senha = dados.get('senha')
+
     try:
         cursor = con.cursor()
 
-        cursor.execute("""SELECT ID_USUARIO, email, SENHA, TIPO, SITUACAO, TENTATIVA FROM USUARIO WHERE email = ? """, (email,))
+        cursor.execute("""
+            SELECT ID_USUARIO, NOME, EMAIL, SENHA, TIPO, SITUACAO, TENTATIVA, TELEFONE, CPF
+            FROM USUARIO 
+            WHERE EMAIL = ?
+        """, (email,))
+
         dados_do_banco = cursor.fetchone()
 
         if not dados_do_banco:
             return jsonify({'mensagem': 'Email ou senha invalida'}), 401
 
-        situacao = dados_do_banco[4]
-        tentativa = dados_do_banco[5]
+        id_usuario = dados_do_banco[0]
+        nome_usuario = dados_do_banco[1]
+        email_usuario = dados_do_banco[2]
+        senha_escritanobanco = dados_do_banco[3]
+        tipo = dados_do_banco[4]
+        situacao = dados_do_banco[5]
+        tentativa = dados_do_banco[6]
+        telefone = dados_do_banco[7]
+        cpf = dados_do_banco[8]
 
         if situacao == 2:
             return jsonify({'mensagem': 'Verifique seu email antes de logar'}), 403
 
-        senha_escritanobanco = dados_do_banco[2]
-        tipo = dados_do_banco[3]
-        id_usuario = dados_do_banco[0]
-
+        if situacao == 1:
+            return jsonify({'mensagem': 'Usuário Bloqueado'}), 403
 
         if not check_password_hash(senha_escritanobanco, senha):
-            cursor.execute('update usuario set tentativa = tentativa + 1 where email = ?',
-                           (email, ))
+            cursor.execute("""
+                UPDATE usuario 
+                SET tentativa = tentativa + 1 
+                WHERE email = ?
+            """, (email,))
+
             if tentativa == 3 and tipo != 0:
-                cursor.execute('update usuario set situacao = 1 where email = ?',
-                               (email,))
+                motivo_bloqueio = "Sua conta foi bloqueada por excesso de tentativas inválidas de login."
+
+                cursor.execute("""
+                    UPDATE usuario 
+                    SET situacao = ?,
+                        motivo_bloqueio = ?
+                    WHERE email = ?
+                """, (1, motivo_bloqueio, email))
+
                 con.commit()
-                return jsonify({'mensagem': 'usuario bloqueado entre em contato com o adm'})
+
+                html = render_template(
+                    'email_bloqueio_usuario.html',
+                    nome=nome_usuario,
+                    motivo_bloqueio=motivo_bloqueio
+                )
+
+                thread = threading.Thread(
+                    target=enviando_email,
+                    args=(email_usuario, "Conta bloqueada - WebCar", html)
+                )
+                thread.start()
+
+                return jsonify({
+                    'mensagem': 'usuario bloqueado por excesso de tentativas. Verifique seu email.'
+                }), 403
 
             con.commit()
+
             return jsonify({'mensagem': 'Email ou senha invalida'}), 401
 
-        if situacao == 1:
-            return jsonify({'mensagem': 'USUARIO BLOQUEADO'})
-
-        cursor.execute("""select id_usuario, nome,email, tipo
-         from usuario where email = ?""", (email,))
-        resultado_diferente = cursor.fetchone()
-
-
         token = gerar_token(id_usuario, tipo)
-        cursor.execute('update usuario set tentativa = 1 where email = ?',(email, ))
-        con.commit()
-        resposta = make_response(jsonify({'mensagem': 'login com sucesso', 'usuario': {
-            'id_usuario':resultado_diferente[0],
-            'nome':resultado_diferente[1],
-            'email':resultado_diferente[2],
-            'tipo': resultado_diferente[3]}}), 200)
 
-        resposta.set_cookie('access_token', token,
-                            httponly=True,
-                            secure=False,
-                            samesite='Lax',
-                            path="/",
-                            max_age=7200)
+        cursor.execute("""
+            UPDATE usuario 
+            SET tentativa = ? 
+            WHERE email = ?
+        """, (1, email))
+
+        con.commit()
+
+        resposta = make_response(jsonify({
+            'mensagem': 'login com sucesso',
+            'usuario': {
+                'id_usuario': id_usuario,
+                'nome': nome_usuario,
+                'email': email_usuario,
+                'tipo': tipo,
+                'telefone': telefone,
+                'cpf': cpf
+            }
+        }), 200)
+
+        resposta.set_cookie(
+            'access_token',
+            token,
+            httponly=True,
+            secure=False,
+            samesite='Lax',
+            path="/",
+            max_age=7200
+        )
+
         return resposta
+
     except Exception as e:
-        return jsonify({'mensagem': 'Erro no login'}), 500
+        return jsonify({'mensagem': f'Erro no login: {e}'}), 500
+
     finally:
         cursor.close()
-
-@app.route('/logout', methods=['POST'])
-def logout():
-    resposta = make_response(jsonify({'mensagem': 'Logout realizado com sucesso'}), 200)
-    resposta.set_cookie(
-        'access_token',
-        '',
-        expires=0,
-        path='/'
-    )
-    return resposta
-
 
 @app.route('/edicao_usuario/<int:id_usuario>', methods=['PUT'])
 def edicao_usuario(id_usuario):
 
     tipo_usuario = descobre_tipo_usuario()
     id_usuario_logado = descobre_id_usuario()
-    if tipo_usuario is None: # isso significa que a funcao returnou null entao, o usuario nao esta logado
+
+    if tipo_usuario is None:
         return jsonify({'mensagem': 'usuario nao logado'}), 403
+
     if tipo_usuario != 0:
         if id_usuario_logado != id_usuario:
             return jsonify({'mensagem': 'usuario nao pertence a essa conta'}), 403
 
-
     cursor = con.cursor()
-    cursor.execute(""" SELECT NOME, EMAIL, TELEFONE, CPF, SENHA, TIPO
-                                            FROM USUARIO
-                                    WHERE ID_USUARIO = ? """, (id_usuario,))
-    existe_usuario = cursor.fetchone()
-
-    if not existe_usuario:# ve se tem o usuario
-        return jsonify({'mensage': 'Usuário não encontrado'})
-
-
-    nome = request.form.get('nome')
-    email = request.form.get('email')
-    telefone = request.form.get('telefone')
-    senha = request.form.get('senha')
-    cpf = request.form.get('cpf')
-    imagem = request.files.get('imagem')
-
-    validado = validar_senha(senha)
 
     try:
-        cursor = con.cursor()
-        cursor.execute("SELECT 1 FROM USUARIO WHERE EMAIL = ? AND ID_USUARIO != ?", (email, id_usuario))
+        cursor.execute("""
+            SELECT NOME, EMAIL, TELEFONE, CPF, SENHA, TIPO
+            FROM USUARIO
+            WHERE ID_USUARIO = ?
+        """, (id_usuario,))
+
+        existe_usuario = cursor.fetchone()
+
+        if not existe_usuario:
+            return jsonify({'mensagem': 'Usuário não encontrado'}), 404
+
+        nome = request.form.get('nome')
+        email = request.form.get('email')
+        telefone = request.form.get('telefone')
+        cpf = request.form.get('cpf')
+        senha = request.form.get('senha')
+        tipo = request.form.get('tipo', existe_usuario[5])
+        imagem = request.files.get('imagem')
+
+        if not nome or not nome.strip():
+            return jsonify({'mensagem': 'Nome é obrigatório'}), 400
+
+        if not email or not email.strip():
+            return jsonify({'mensagem': 'Email é obrigatório'}), 400
+
+        if not cpf or not cpf.strip():
+            return jsonify({'mensagem': 'CPF é obrigatório'}), 400
+
+        alterar_senha = senha is not None and senha.strip() != ""
+
+        cursor.execute("""
+            SELECT 1
+            FROM USUARIO
+            WHERE EMAIL = ?
+            AND ID_USUARIO != ?
+        """, (email, id_usuario))
+
         if cursor.fetchone():
             return jsonify({'mensagem': 'Email já cadastrado'}), 400
 
-        cursor.execute("SELECT 1 FROM USUARIO WHERE cpf = ? AND ID_USUARIO != ?", (cpf, id_usuario))
-        if cursor.fetchone():
-            return jsonify({'mensagem': 'cpf já cadastrado'}), 400
-        if not validado:
-            return jsonify({'mensagem': 'Senha fora do padrão'}), 400
-
-        senha_hash = generate_password_hash(senha).decode('utf-8')
-
-        cursor.execute('update usuario set nome=?, email=?, cpf=?, telefone=?, senha=? where id_usuario = ?',
-                   (nome, email, cpf, telefone,senha_hash ,id_usuario))
-
         cursor.execute("""
-        INSERT INTO historico_senha(id_usuario, senha_anterior)
-                       VALUES (?,?)""",(id_usuario, senha_hash))
-        con.commit()
-        con.commit()
+            SELECT 1
+            FROM USUARIO
+            WHERE CPF = ?
+            AND ID_USUARIO != ?
+        """, (cpf, id_usuario))
+
+        if cursor.fetchone():
+            return jsonify({'mensagem': 'CPF já cadastrado'}), 400
+
+        if alterar_senha:
+            if not validar_senha(senha):
+                return jsonify({'mensagem': 'Senha fora do padrão'}), 400
+
+            if senha_repetida(id_usuario, senha):
+                return jsonify({'mensagem': 'Não pode repetir as últimas 3 senhas'}), 400
+
+            senha_hash = generate_password_hash(senha).decode('utf-8')
+
+            cursor.execute("""
+                UPDATE USUARIO
+                SET NOME = ?,
+                    EMAIL = ?,
+                    CPF = ?,
+                    TELEFONE = ?,
+                    SENHA = ?,
+                    TIPO = ?
+                WHERE ID_USUARIO = ?
+            """, (nome, email, cpf, telefone, senha_hash, tipo, id_usuario))
+
+            cursor.execute("""
+                INSERT INTO historico_senha(id_usuario, senha_anterior)
+                VALUES (?, ?)
+            """, (id_usuario, senha_hash))
+
+            con.commit()
+
+            cursor.execute("""
+                DELETE FROM historico_senha
+                WHERE id_usuario = ?
+                AND id_historico_senha NOT IN (
+                    SELECT FIRST 3 id_historico_senha
+                    FROM historico_senha
+                    WHERE id_usuario = ?
+                    ORDER BY id_historico_senha DESC
+                )
+            """, (id_usuario, id_usuario))
+
+            con.commit()
+
+        else:
+            cursor.execute("""
+                UPDATE USUARIO
+                SET NOME = ?,
+                    EMAIL = ?,
+                    CPF = ?,
+                    TELEFONE = ?,
+                    TIPO = ?
+                WHERE ID_USUARIO = ?
+            """, (nome, email, cpf, telefone, tipo, id_usuario))
+
+            con.commit()
 
         if imagem:
             pasta = os.path.join(app.config['UPLOAD_FOLDER'], "Usuarios")
@@ -248,10 +350,14 @@ def edicao_usuario(id_usuario):
         return jsonify({
             'mensagem': 'Usuário atualizado com sucesso',
             'id_usuario': id_usuario
-        }), 201
+        }), 200
 
     except Exception as e:
-        return jsonify({'mensagem': 'erro ao editar'})
+        con.rollback()
+        return jsonify({'mensagem': f'erro ao editar: {e}'}), 500
+
+    finally:
+        cursor.close()
 
 @app.route('/deletar_usuario/<int:id_usuario>', methods=['DELETE'])
 def deletar_usuario(id_usuario):
@@ -307,7 +413,7 @@ def esqueci_senha():
 
         thread = threading.Thread(
             target=enviando_email,
-            args=(email, html)
+            args=(email, "Código de Recuperação de Senha - WebCar", html)
         )
         thread.start()
 
@@ -595,4 +701,64 @@ def verificar_email():
     finally:
         cursor.close()
 
+@app.route('/bloquear_usuario/<int:id_usuario>', methods=['PUT'])
+def bloquear_usuario(id_usuario):
+    dados = request.get_json()
+
+    motivo_bloqueio = dados.get('motivo_bloqueio')
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas ADM pode bloquear usuários'}), 403
+
+    if not motivo_bloqueio:
+        return jsonify({'mensagem': 'Informe o motivo do bloqueio'}), 400
+
+    cursor = con.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT nome, email, situacao
+            FROM usuario
+            WHERE id_usuario = ?
+        """, (id_usuario,))
+
+        usuario = cursor.fetchone()
+
+        if not usuario:
+            return jsonify({'mensagem': 'Usuário não encontrado'}), 404
+
+        nome_usuario = usuario[0]
+        email_usuario = usuario[1]
+        situacao = usuario[2]
+
+        if situacao == 1:
+            return jsonify({'mensagem': 'Usuário já está bloqueado'}), 400
+
+        cursor.execute("""
+            UPDATE usuario
+            SET situacao = ?,
+                motivo_bloqueio = ?
+            WHERE id_usuario = ?
+        """, (1, motivo_bloqueio, id_usuario))
+
+        con.commit()
+
+        html = render_template(
+            'email_bloqueio_usuario.html',
+            nome=nome_usuario,
+            motivo_bloqueio=motivo_bloqueio
+        )
+
+        enviando_email(
+            email_usuario,
+            "Conta bloqueada - WebCar",
+            html
+        )
+
+        return jsonify({'mensagem': 'Usuário bloqueado e e-mail enviado com sucesso'}), 200
+
+    except Exception as e:
+        con.rollback()
+        return jsonify({'mensagem': f'Erro ao bloquear usuário: {e}'}), 500
 

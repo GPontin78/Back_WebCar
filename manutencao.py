@@ -255,9 +255,14 @@ def adicionar_manutencao():
                 'mensagem': 'Não é possível cadastrar manutencao com data retroativa'
             }), 403
 
-        cursor.execute(""" select id_veiculo from veiculo where id_veiculo = ?
+        cursor.execute(""" select id_veiculo, status from veiculo where id_veiculo = ?
         """, (id_veiculo,))
-        veiculo= cursor.fetchone()
+        veiculo = cursor.fetchone()
+        status = veiculo[1]
+        if status == 2:
+            return jsonify({
+                'mensagem': 'Não é possível cadastrar manutencao com um veículo vendido'
+            }), 403
 
         if not veiculo:
             return jsonify({'mensagem': 'Veiculo não encontrado',}), 400

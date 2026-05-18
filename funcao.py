@@ -86,13 +86,13 @@ def gerar_codigo():
     return str(random.randint(100000, 999999))
 
 
-def enviando_email(destinatario, html):
+def enviando_email(destinatario, assunto, html):
     user_email = 'webcar89@gmail.com'
     senha = 'dbgu pqdq htkb bcds'
 
     try:
         msg = MIMEMultipart("alternative")
-        msg['Subject'] = "Código de Verificação - WebCar"
+        msg['Subject'] = assunto
         msg['From'] = user_email
         msg['To'] = destinatario
 
