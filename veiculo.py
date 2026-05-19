@@ -235,9 +235,6 @@ def buscar_veiculo():
 
     tipo_usuario = descobre_tipo_usuario()
 
-    if tipo_usuario is None:
-        return jsonify({'mensagem': 'usuario nao logado'}), 403
-
     try:
         cursor = con.cursor()
         lista_veiculos = []
