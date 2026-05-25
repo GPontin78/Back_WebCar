@@ -1,6 +1,7 @@
 from flask import jsonify, request, send_from_directory
 from main import app, con
 from funcao import descobre_tipo_usuario
+from datetime import datetime
 import os
 
 
@@ -39,8 +40,9 @@ def adicionar_veiculo():
 
         print('aqqqq')
 
-        cursor.execute(""" select id_marca from marca where id_marca=? """, (id_marca,))
+        cursor.execute(""" select id_marca,nome from marca where id_marca=? """, (id_marca,))
         marca_banco = cursor.fetchone()
+        nome_marca = marca_banco[1]
 
         print('aq de novo')
 
@@ -56,7 +58,13 @@ def adicionar_veiculo():
         """, (marca_banco[0],modelo,ano_fabricacao,ano_modelo,placa,km,cor,cambio,combustivel,renavam,preco_custo,preco_venda,documentacao, empresa_banco[0]))
         print("a2")
 
+
+
         id_veiculo = cursor.fetchone()[0]
+        descricao = f'Veículo comprado: {nome_marca} {modelo}'
+        data_atual = datetime.now()
+        cursor.execute(""" insert into despesa(valor, descricao, data_despesa)
+                            values (?, ?, ?)""", (preco_custo, descricao, data_atual ))
         con.commit()
 
         pasta_veiculo = os.path.join(app.config['UPLOAD_FOLDER'], 'veiculo', str(id_veiculo))
@@ -75,7 +83,7 @@ def adicionar_veiculo():
         }), 200
 
     except Exception as e:
-        return jsonify({'mensagem': f'Erro ao cadastrar veículo'}), 500
+        return jsonify({'mensagem': f'Erro ao cadastrar veículo: {str(e)}'}), 500
     finally:
         cursor.close()
 

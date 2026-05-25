@@ -180,9 +180,11 @@ def adicionar_venda():
 
         if forma_pagamento == 1 and tipo_usuario == 1:
             valor = preco_venda
+            valor_parcela_orginal = round(float(valor/parcela), 2)
+            valor_certo = round(float(valor_parcela_orginal * parcela), 2)
             juro = porcentagem_juro_banco / 100
 
-            parcela_mensal_juro = round(float(valor * juro / (1 - (1 + juro) ** -parcela)), 2)
+            parcela_mensal_juro = round(float(valor_certo * juro / (1 - (1 + juro) ** -parcela)), 2)
 
             valor_venda_financiamento = round(float(parcela_mensal_juro * parcela),2)
 
@@ -213,15 +215,17 @@ def adicionar_venda():
                     id_venda,
                     data_financiamento,
                     valor_venda,
-                    valor_venda_financiamento
+                    valor_venda_financiamento,
+                    PORCENTAGEM_JURO_FINANCIAMENTO
                 )
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 RETURNING id_financiamento
             """, (
                 id_venda,
                 data_venda,
                 valor,
-                valor_venda_financiamento
+                valor_venda_financiamento,
+                porcentagem_juro_banco
             ))
 
             id_financiamento = cursor.fetchone()[0]
@@ -244,14 +248,16 @@ def adicionar_venda():
                         numero_parcela,
                         valor_parcela,
                         data_vencimento,
+                        valor_parcela_original,
                         status
                     )
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """, (
                     id_financiamento,
                     numero_parcela,
                     parcela_mensal_juro,
                     data_vencimento,
+                    valor_parcela_orginal,
                     0
                 ))
 
