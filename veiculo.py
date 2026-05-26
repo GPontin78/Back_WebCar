@@ -62,9 +62,10 @@ def adicionar_veiculo():
 
         id_veiculo = cursor.fetchone()[0]
         descricao = f'Veículo comprado: {nome_marca} {modelo}'
+        tabela = 'VEICULO'
         data_atual = datetime.now()
-        cursor.execute(""" insert into despesa(valor, descricao, data_despesa)
-                            values (?, ?, ?)""", (preco_custo, descricao, data_atual ))
+        cursor.execute(""" insert into despesa(valor, descricao, data_despesa, tabela, id_tabela, status)
+                            values (?, ?, ?, ?, ?, ?)""", (preco_custo, descricao, data_atual, tabela, id_veiculo, 0))
         con.commit()
 
         pasta_veiculo = os.path.join(app.config['UPLOAD_FOLDER'], 'veiculo', str(id_veiculo))
@@ -140,6 +141,11 @@ def edicao_veiculo(id_veiculo):
         status = veiculo[0]
         if status == 2:
             return jsonify({'mensagem': 'Veículo vendido não pode ser editado.'}), 404
+        
+        cursor.execute(""" select id_marca,nome from marca where id_marca=? """, (id_marca,))
+        marca_banco = cursor.fetchone()
+        nome_marca = marca_banco[1]
+
 
         cursor.execute("""
             UPDATE VEICULO
@@ -176,6 +182,12 @@ def edicao_veiculo(id_veiculo):
             status,
             id_veiculo
         ))
+        descricao = f'Veículo comprado: {nome_marca} {modelo}'
+        tabela = 'VEICULO'
+        data_atual = datetime.now()
+
+        cursor.execute("""  update despesa set valor = ?, descricao = ?, data_despesa = ? where tabela = ? and id_tabela = ? and status = 0""",
+                        (preco_custo, descricao, data_atual, tabela, id_veiculo))
 
         con.commit()
 
@@ -225,6 +237,7 @@ def deletar_veiculo(id_veiculo):
 
         print('aq')
         cursor.execute('delete from veiculo where id_veiculo = ?', (id_veiculo,))
+        cursor.execute('update despesa set status = 1 where tabela = ? and id_tabela = ?', ('VEICULO', id_veiculo))
         con.commit()
         return jsonify({'mensagem': 'Veículo deletado com sucesso'}), 300
 

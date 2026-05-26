@@ -457,16 +457,24 @@ def adicionar_item_manutencao():
     try:
         cursor = con.cursor()
 
-        cursor.execute(""" select id_servico, valor_unitario from servico where id_servico=? """,(id_servico, ))
+        cursor.execute(""" select id_servico, valor_unitario,descricao from servico where id_servico=? """,(id_servico, ))
         servico_banco = cursor.fetchone()
         valor_unitario = servico_banco[1]
+        descricao_servico = servico_banco[2]
 
         valor_multi = float(valor_unitario*quantidade)
 
 
-        cursor.execute(""" select id_manutencao from manutencao where id_manutencao=?""",(id_manutencao,))
+        cursor.execute(""" select id_manutencao, id_veiculo from manutencao where id_manutencao=?""",(id_manutencao,))
         manutencao_banco = cursor.fetchone()
-
+        id_veiculo = manutencao_banco[1]
+        cursor.execute(""" select id_marca, modelo from veiculo where id_veiculo=?""",(id_veiculo,))
+        veiculo_banco = cursor.fetchone()
+        id_marca = veiculo_banco[0]
+        modelo = veiculo_banco[1]
+        cursor.execute(""" select nome from marca where id_marca=?""",(id_marca,))
+        marca = cursor.fetchone()
+        nome_marca = marca[0]
 
         cursor.execute("""insert into item_manutencao ( id_manutencao, id_servico, quantidade, valor_total) 
                           values(?,?,?,?) returning id_item_manutencao""", (manutencao_banco[0],servico_banco[0],quantidade, valor_multi))
@@ -474,13 +482,21 @@ def adicionar_item_manutencao():
 
         con.commit()
 
-
-
         cursor.execute("""UPDATE MANUTENCAO SET VALOR_TOTAL =  (SELECT sum(coalesce(ITEM_MANUTENCAO.VALOR_TOTAL,0))  
                                                                 FROM ITEM_MANUTENCAO
                                                                WHERE ITEM_MANUTENCAO.ID_MANUTENCAO = MANUTENCAO.ID_MANUTENCAO
                                                                )
                            WHERE MANUTENCAO.ID_MANUTENCAO  = ? """,(id_manutencao,))
+        
+        tabela = 'ITEM_MANUTENCAO'
+
+        descricao = f'Item de manutenção adicionado: {nome_marca} {modelo} - {descricao_servico} x {quantidade}'
+
+        data_atual = datetime.now()
+
+        cursor.execute(""" insert into despesa (id_tabela, tabela, valor, descricao, data_despesa, status)
+                            values (?, ?, ?, ?, ?, ?)""",(id_item_manutencao, tabela, valor_multi, descricao, data_atual, 0))
+
         con.commit()
         return jsonify({'mensagem': 'Item de manutencao cadastrado com sucesso',}), 200
 
@@ -534,12 +550,27 @@ def edicao_item_manutencao(id_item_manutencao):
         if quantidade is None:
             quantidade = quantidade_atual
 
+        cursor.execute(""" select id_manutencao, id_veiculo from manutencao where id_manutencao = ?""", (id_manutencao,))
+        manutencao_banco = cursor.fetchone()
+        id_veiculo = manutencao_banco[1]
+        
+        cursor.execute(""" select id_marca, modelo from veiculo 
+                       where id_veiculo = ?""", (id_veiculo,))
+        veiculo_banco = cursor.fetchone()
+        id_marca = veiculo_banco[0]
+        modelo = veiculo_banco[1]
+
+        cursor.execute(""" select nome from marca where id_marca = ?""", (id_marca,))
+        marca = cursor.fetchone()
+        nome_marca = marca[0]
+
         cursor.execute("""
-            SELECT valor_unitario
+            SELECT valor_unitario, descricao
             FROM servico
             WHERE id_servico = ?
         """, (id_servico,))
         servico_banco = cursor.fetchone()
+        descricao_servico = servico_banco[1]
 
         if not servico_banco:
             return jsonify({'mensagem': 'Serviço não encontrado'}), 404
@@ -552,6 +583,13 @@ def edicao_item_manutencao(id_item_manutencao):
             SET id_servico = ?, quantidade = ?, valor_total = ?
             WHERE id_item_manutencao = ?
         """, (id_servico, quantidade, valor_novo, id_item_manutencao))
+
+        descricao = f'Item de manutenção editado: {nome_marca} {modelo} - {descricao_servico} x {quantidade}'
+        data_atual = datetime.now()
+
+        cursor.execute(""" update despesa set valor = ?, descricao = ?, data_despesa = ?
+                       where id_tabela = ? and tabela = 'ITEM_MANUTENCAO'""", 
+                       (valor_novo, descricao, data_atual, id_item_manutencao))
 
         cursor.execute("""UPDATE MANUTENCAO
                           SET VALOR_TOTAL = (SELECT sum(coalesce(ITEM_MANUTENCAO.VALOR_TOTAL, 0))
@@ -579,12 +617,25 @@ def deletar_item_manutencao(id_item_manutencao):
         cursor = con.cursor()
 
         cursor.execute("""
-            SELECT im.id_manutencao, im.valor_total, m.data
+            SELECT im.id_manutencao, im.valor_total, m.data, m.id_veiculo, im.id_servico, im.quantidade
             FROM item_manutencao im
             INNER JOIN manutencao m ON im.id_manutencao = m.id_manutencao
             WHERE im.id_item_manutencao = ?
         """, (id_item_manutencao,))
         item_banco = cursor.fetchone()
+        id_servico = item_banco[4]
+        quantidade = item_banco[5]
+        cursor.execute(""" select descricao from servico where id_servico = ?""", (id_servico,))
+        servico_banco = cursor.fetchone()
+        descricao_servico = servico_banco[0]
+        cursor.execute(""" select id_marca, modelo from veiculo 
+                       where id_veiculo = ?""", (item_banco[3],))
+        veiculo_banco = cursor.fetchone()
+        id_marca = veiculo_banco[0]
+        modelo = veiculo_banco[1]
+        cursor.execute(""" select nome from marca where id_marca = ?""", (id_marca,))
+        marca = cursor.fetchone()
+        nome_marca = marca[0]
 
         if not item_banco:
             return jsonify({'mensagem': 'Item de manutenção não encontrado'}), 404
@@ -599,11 +650,15 @@ def deletar_item_manutencao(id_item_manutencao):
             return jsonify({
                 'mensagem': 'Não é possível deletar manutencao com data retroativa'
             }), 403
-
+        descricao = f'Item de manutenção estornado: {nome_marca} {modelo} - {descricao_servico} x {quantidade}'
         cursor.execute("""
             DELETE FROM item_manutencao
             WHERE id_item_manutencao = ?
         """, (id_item_manutencao,))
+        cursor.execute(""" update despesa set descricao = ?, status = ? 
+                       where id_tabela = ? and tabela = 'ITEM_MANUTENCAO' """, 
+                       (descricao, 1, id_item_manutencao))
+
 
         cursor.execute("""UPDATE MANUTENCAO
                           SET VALOR_TOTAL = (SELECT sum(coalesce(ITEM_MANUTENCAO.VALOR_TOTAL, 0))

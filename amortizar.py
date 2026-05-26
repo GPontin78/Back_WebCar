@@ -39,7 +39,7 @@ def amortizar(id_financiamento):
             SELECT COUNT(*)
             FROM item_financiamento
             WHERE id_financiamento = ?
-              AND status = 0
+              AND status in(0,3)
         """, (id_financiamento,))
 
         parcela_restante = cursor.fetchone()[0]
@@ -59,17 +59,19 @@ def amortizar(id_financiamento):
 
             novo_valor_financiamento = round(float(parcela_mensal_juro_novo * parcela_restante),2)
 
+            valor_parcela_original = round(float(novo_saldo_devedor/parcela_restante),2)
+
             cursor.execute("""
                 UPDATE financiamento
-                SET saldo_devedor = ?,
-                    valor_venda_financiamento = ?
+                SET valor_restante_financiamento = ?
                 WHERE id_financiamento = ?
-            """, (novo_saldo_devedor, novo_valor_financiamento, id_financiamento))
+            """, ( novo_valor_financiamento, id_financiamento))
 
             cursor.execute("""
                 SELECT id_item_financiamento, numero_parcela
                 FROM item_financiamento
-                WHERE id_financiamento = ? AND status = 0 ORDER BY numero_parcela
+                WHERE id_financiamento = ? 
+                AND status in(0,3) ORDER BY numero_parcela 
             """, (id_financiamento,))
 
             parcelas_abertas = cursor.fetchall()
@@ -77,7 +79,12 @@ def amortizar(id_financiamento):
             for parcela in parcelas_abertas:
                 id_item_financiamento = parcela[0]
                 numero_parcela = parcela[1]
-
+                
+                cursor.execute("""
+                    UPDATE item_financiamento
+                    SET valor_parcela = ?, SALDO_DEVEDOR_PARCELA = ?
+                    WHERE id_item_financiamento = ?
+                """, (parcela_mensal_juro_novo, valor_parcela_original, id_item_financiamento))
                 gerar_pix(
                     chave=chave_pix,
                     nome=nome_empresa,
@@ -87,17 +94,52 @@ def amortizar(id_financiamento):
                     txid=f"F{id_financiamento}P{numero_parcela}"
                 )
 
-                cursor.execute("""
-                    UPDATE item_financiamento
-                    SET valor_parcela = ?
-                    WHERE id_item_financiamento = ?
-                """, (parcela_mensal_juro_novo,id_item_financiamento))
 
             con.commit()
 
             return jsonify({
                 'mensagem': 'Amortização concluída com sucesso'}), 200
+        
+        if tipo_amortizacao ==2:
+            while valor_amortizado > 0:
+                if valor_amortizado == 0:
+                    break
+                cursor.execute(""" SELECT FIRST 1 id_item_financiamento, saldo_devedor_parcela, valor_parcela, valor_parcela_original, numero_parcela
+                                FROM ITEM_FINANCIAMENTO
+                                WHERE ID_FINANCIAMENTO = ? AND status in(0,3)
+                                ORDER BY numero_parcela DESC  """, (id_financiamento,))
+                item_financiamento = cursor.fetchone()
+                id_item_financiamento = item_financiamento[0]
+                saldo_parcela_devedor = float(item_financiamento[1])
+                valor_parcela = float(item_financiamento[2])
+                valor_parcela_original = float(item_financiamento[3])
+                numero_parcela = item_financiamento[4]
+                
 
+                if valor_amortizado >= saldo_parcela_devedor:
+                    cursor.execute(""" update item_financiamento 
+                                   set status = 2, saldo_devedor_parcela = 0 where id_item_financiamento = ? """, 
+                                   (id_item_financiamento,))
+                    valor_amortizado -= saldo_parcela_devedor
+                    
+                else:
+                    valor_restante = float(saldo_parcela_devedor - valor_amortizado)
+                    cursor.execute(""" update item_financiamento set status = 3, saldo_devedor_parcela = ?  
+                                   where id_item_financiamento = ? """, (valor_restante, id_item_financiamento))
+                    
+                    valor_amortizado -= saldo_parcela_devedor
+                    valor_restante_parcela = round(float((valor_parcela - valor_parcela_original) + valor_restante),2)
+                    gerar_pix(
+                    chave=chave_pix,
+                    nome=nome_empresa,
+                    cidade=cidade_empresa, 
+                    valor=valor_restante_parcela,
+                    pasta="financiamento",
+                    txid=f"F{id_financiamento}P{numero_parcela}")
+
+            con.commit()
+                
+            return jsonify({'mensagem': 'Amortização concluída com sucesso'}), 200
 
     except Exception as e:
         con.rollback()

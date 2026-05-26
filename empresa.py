@@ -14,6 +14,7 @@ def adicionar_empresa():
     inscricao_estadual = request.form.get('inscricao_estadual')
     cep = int(request.form.get('cep'))
     rua = request.form.get('rua').title()
+    bairro = request.form.get('bairro').title()
     uf = request.form.get('uf').upper()
     numero_endereco = int(request.form.get('numero_endereco'))
     agencia = int(request.form.get('agencia'))
@@ -63,6 +64,7 @@ def adicionar_empresa():
                 inscricao_estadual,
                 cep,
                 rua,
+                bairro,
                 uf,
                 numero_endereco,
                 agencia,
@@ -77,8 +79,9 @@ def adicionar_empresa():
                 cor_fonte,
                 descricao,
                 fonte
+                
             )
-            values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             RETURNING id_empresa
         """, (
             cnpj,
@@ -89,6 +92,7 @@ def adicionar_empresa():
             inscricao_estadual,
             cep,
             rua,
+            bairro,
             uf,
             numero_endereco,
             agencia,
@@ -102,7 +106,7 @@ def adicionar_empresa():
             cor_terciaria,
             cor_fonte,
             descricao,
-            fonte
+            fonte,
         ))
 
         id_empresa = cursor.fetchone()[0]
@@ -159,6 +163,7 @@ def edicao_empresa(id_empresa):
         inscricao_estadual = request.form.get('inscricao_estadual')
         cep = int(request.form.get('cep'))
         rua = request.form.get('rua').title()
+        bairro = request.form.get('bairro').title()
         uf = request.form.get('uf').upper()
         numero_endereco = int(request.form.get('numero_endereco'))
         agencia = int(request.form.get('agencia'))
@@ -212,6 +217,7 @@ def edicao_empresa(id_empresa):
                 inscricao_estadual = ?,
                 cep = ?,
                 rua = ?,
+                bairro = ?,
                 uf = ?,
                 numero_endereco = ?,
                 agencia = ?,
@@ -236,6 +242,7 @@ def edicao_empresa(id_empresa):
             inscricao_estadual,
             cep,
             rua,
+            bairro,
             uf,
             numero_endereco,
             agencia,
@@ -341,7 +348,8 @@ def verdadosempresa():
                 cor_terciaria,
                 cor_fonte,
                 descricao,
-                fonte
+                fonte,
+                bairro
             FROM empresa
             ORDER BY id_empresa
         """)
@@ -377,6 +385,7 @@ def verdadosempresa():
                 'descricao': empresa[21],
                 'texto_banner': empresa[21],
                 'fonte': empresa[22],
+                'bairro': empresa[23],
                 'logo_url': f'{request.host_url}uploads/empresa/logo_{id_empresa}.jpg',
                 'banner_url': f'{request.host_url}uploads/empresa/banner_{id_empresa}.jpg'
             })

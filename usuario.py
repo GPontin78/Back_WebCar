@@ -1,10 +1,173 @@
-from flask import jsonify, request, make_response,  render_template, send_from_directory
+from flask import jsonify, request, make_response, render_template, send_from_directory
 from main import app, con
-from funcao import validar_senha, gerar_token,descobre_tipo_usuario, descobre_id_usuario, gerar_codigo,enviando_email,senha_repetida
-from flask_bcrypt import generate_password_hash,check_password_hash
+from funcao import validar_senha, gerar_token, descobre_tipo_usuario, descobre_id_usuario, gerar_codigo, enviando_email, senha_repetida
+from flask_bcrypt import generate_password_hash, check_password_hash
 import os
 import threading
+import uuid
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+from datetime import date, datetime
 
+GOOGLE_CLIENT_ID = "92315268318-qn4id91q5o6dkg25e47h29joheito0li.apps.googleusercontent.com"
+
+@app.route('/login_google', methods=['POST'])
+def login_google():
+    dados = request.get_json()
+    credential = dados.get('credential')
+    tipo = dados.get('tipo', 2)
+    cursor = None
+
+    if not credential:
+        return jsonify({'mensagem': 'Token do Google não enviado'}), 400
+
+    try:
+        tipo = int(tipo)
+    except:
+        tipo = 2
+
+    if tipo != 2:
+        tipo = 2
+
+    try:
+        info_google = id_token.verify_oauth2_token(
+            credential,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID
+        )
+
+        email = info_google.get('email')
+        nome = info_google.get('name')
+        foto_google = info_google.get('picture')
+        telefone_google = info_google.get('phone_number')
+
+        if not email:
+            return jsonify({'mensagem': 'Não foi possível obter o email do Google'}), 400
+
+        email = email.lower()
+
+        if not nome:
+            nome = email.split('@')[0]
+
+        cursor = con.cursor()
+
+        cursor.execute("""
+            SELECT id_usuario, nome, email, tipo, situacao, telefone, cpf
+            FROM usuario
+            WHERE email = ?
+        """, (email,))
+
+        usuario = cursor.fetchone()
+
+        if usuario:
+            id_usuario = usuario[0]
+            nome_usuario = usuario[1]
+            email_usuario = usuario[2]
+            tipo_usuario = usuario[3]
+            situacao = usuario[4]
+            telefone = usuario[5]
+            cpf = usuario[6]
+
+            if situacao == 1:
+                return jsonify({'mensagem': 'Usuário bloqueado'}), 403
+
+            token = gerar_token(id_usuario, tipo_usuario)
+
+            resposta = make_response(jsonify({
+                'mensagem': 'Login com Google realizado com sucesso',
+                'usuario': {
+                    'id_usuario': id_usuario,
+                    'nome': nome_usuario,
+                    'email': email_usuario,
+                    'tipo': tipo_usuario,
+                    'telefone': telefone,
+                    'cpf': cpf,
+                    'imagem_google': foto_google,
+                    'imagem': foto_google
+                },
+                'token': token
+            }), 200)
+
+            resposta.set_cookie(
+                'access_token',
+                token,
+                httponly=True,
+                secure=False,
+                samesite='Lax',
+                path="/",
+                max_age=7200
+            )
+
+            return resposta
+
+        senha_aleatoria = str(uuid.uuid4())
+        senha_hash = generate_password_hash(senha_aleatoria).decode('utf-8')
+
+        cursor.execute("""
+            INSERT INTO usuario (
+                nome,
+                email,
+                telefone,
+                situacao,
+                tipo,
+                senha,
+                tentativa,
+                cpf
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id_usuario
+        """, (
+            nome,
+            email,
+            telefone_google,
+            0,
+            2,
+            senha_hash,
+            1,
+            None
+        ))
+
+        id_usuario = cursor.fetchone()[0]
+        con.commit()
+
+        token = gerar_token(id_usuario, 2)
+
+        resposta = make_response(jsonify({
+            'mensagem': 'Cadastro com Google realizado com sucesso',
+            'usuario': {
+                'id_usuario': id_usuario,
+                'nome': nome,
+                'email': email,
+                'tipo': 2,
+                'telefone': telefone_google,
+                'cpf': None,
+                'imagem_google': foto_google,
+                'imagem': foto_google
+            },
+            'token': token
+        }), 200)
+
+        resposta.set_cookie(
+            'access_token',
+            token,
+            httponly=True,
+            secure=False,
+            samesite='Lax',
+            path="/",
+            max_age=7200
+        )
+
+        return resposta
+
+    except ValueError:
+        return jsonify({'mensagem': 'Token do Google inválido'}), 401
+
+    except Exception as e:
+        print(e)
+        return jsonify({'mensagem': f'Erro ao fazer login com Google: {str(e)}'}), 500
+
+    finally:
+            cursor.close()
 
 @app.route('/adicionar_usuario', methods=['POST'])
 def adicionar_usuario():
@@ -762,3 +925,204 @@ def bloquear_usuario(id_usuario):
         con.rollback()
         return jsonify({'mensagem': f'Erro ao bloquear usuário: {e}'}), 500
 
+@app.route('/minhas_vendas', methods=['GET'])
+def minhas_vendas():
+    tipo_usuario = descobre_tipo_usuario()
+    id_usuario_logado = descobre_id_usuario()
+    id_usuario_parametro = request.args.get('id_usuario')
+
+    if tipo_usuario is None:
+        return jsonify({'mensagem': 'Usuário não logado'}), 403
+
+    if tipo_usuario == 2:
+        return jsonify({'mensagem': 'Apenas vendedor/adm pode acessar suas vendas'}), 403
+
+    id_vendedor_consulta = id_usuario_logado
+
+    if tipo_usuario == 0 and id_usuario_parametro:
+        id_vendedor_consulta = int(id_usuario_parametro)
+
+    cursor = con.cursor()
+
+    try:
+        hoje = date.today()
+
+        lista_vendas = []
+        calendario_dict = {}
+        grafico_mensal_dict = {}
+        formas_pagamento_dict = {}
+
+        qtd_vendas = 0
+        valor_total_vendido = 0
+        lucro_bruto_total = 0
+        ticket_medio = 0
+        vendas_mes_atual = 0
+        valor_mes_atual = 0
+
+        cursor.execute("""
+            SELECT
+                vd.id_venda,
+                vd.data_venda,
+                cliente.nome,
+                marca.nome,
+                ve.modelo,
+                ve.placa,
+                vd.forma_pagamento,
+                vd.valor_venda,
+                ve.preco_custo
+            FROM venda vd
+            LEFT JOIN usuario cliente ON cliente.id_usuario = vd.id_usuario_cliente
+            INNER JOIN veiculo ve ON ve.id_veiculo = vd.id_veiculo
+            INNER JOIN marca marca ON marca.id_marca = ve.id_marca
+            WHERE vd.id_usuario_vendedor = ?
+            ORDER BY vd.data_venda DESC
+        """, (id_vendedor_consulta,))
+
+        vendas = cursor.fetchall()
+
+        for venda in vendas:
+            id_venda = venda[0]
+            data_venda = venda[1]
+            cliente = venda[2] or 'Sem cliente'
+            marca = venda[3] or 'Sem marca'
+            modelo = venda[4] or ''
+            placa = venda[5] or ''
+            forma_pagamento = venda[6]
+            valor_venda = float(venda[7] or 0)
+            preco_custo = float(venda[8] or 0)
+
+            lucro_bruto = valor_venda - preco_custo
+
+            nome_forma_pagamento = 'Não informado'
+
+            if forma_pagamento == 0:
+                nome_forma_pagamento = 'Pix / À vista'
+            elif forma_pagamento == 1:
+                nome_forma_pagamento = 'Financiado'
+
+            nome_veiculo = f'{marca} {modelo}'.strip()
+
+            lista_vendas.append({
+                'id_venda': id_venda,
+                'data_venda': str(data_venda) if data_venda else None,
+                'cliente': cliente,
+                'veiculo': nome_veiculo,
+                'marca': marca,
+                'modelo': modelo,
+                'placa': placa,
+                'forma_pagamento': nome_forma_pagamento,
+                'valor_venda': round(valor_venda, 2),
+                'preco_custo': round(preco_custo, 2),
+                'lucro_bruto': round(lucro_bruto, 2)
+            })
+
+            qtd_vendas += 1
+            valor_total_vendido += valor_venda
+            lucro_bruto_total += lucro_bruto
+
+            if data_venda:
+                data_comparar = data_venda
+
+                if isinstance(data_venda, datetime):
+                    data_comparar = data_venda.date()
+
+                if data_comparar.month == hoje.month and data_comparar.year == hoje.year:
+                    vendas_mes_atual += 1
+                    valor_mes_atual += valor_venda
+
+                chave_data = str(data_comparar)
+
+                if chave_data not in calendario_dict:
+                    calendario_dict[chave_data] = {
+                        'data': chave_data,
+                        'quantidade': 0,
+                        'valor_total': 0
+                    }
+
+                calendario_dict[chave_data]['quantidade'] += 1
+                calendario_dict[chave_data]['valor_total'] += valor_venda
+
+                chave_mes = f'{data_comparar.year}-{str(data_comparar.month).zfill(2)}'
+
+                if chave_mes not in grafico_mensal_dict:
+                    grafico_mensal_dict[chave_mes] = {
+                        'mes': chave_mes,
+                        'quantidade': 0,
+                        'valor_total': 0,
+                        'lucro_bruto': 0
+                    }
+
+                grafico_mensal_dict[chave_mes]['quantidade'] += 1
+                grafico_mensal_dict[chave_mes]['valor_total'] += valor_venda
+                grafico_mensal_dict[chave_mes]['lucro_bruto'] += lucro_bruto
+
+            if nome_forma_pagamento not in formas_pagamento_dict:
+                formas_pagamento_dict[nome_forma_pagamento] = {
+                    'forma_pagamento': nome_forma_pagamento,
+                    'quantidade': 0,
+                    'valor_total': 0
+                }
+
+            formas_pagamento_dict[nome_forma_pagamento]['quantidade'] += 1
+            formas_pagamento_dict[nome_forma_pagamento]['valor_total'] += valor_venda
+
+        if qtd_vendas > 0:
+            ticket_medio = valor_total_vendido / qtd_vendas
+
+        calendario = []
+
+        for chave in sorted(calendario_dict.keys()):
+            item = calendario_dict[chave]
+            calendario.append({
+                'data': item['data'],
+                'quantidade': item['quantidade'],
+                'valor_total': round(item['valor_total'], 2)
+            })
+
+        grafico_mensal = []
+
+        for chave in sorted(grafico_mensal_dict.keys()):
+            item = grafico_mensal_dict[chave]
+            grafico_mensal.append({
+                'mes': item['mes'],
+                'quantidade': item['quantidade'],
+                'valor_total': round(item['valor_total'], 2),
+                'lucro_bruto': round(item['lucro_bruto'], 2)
+            })
+
+        formas_pagamento = []
+
+        for chave in formas_pagamento_dict:
+            item = formas_pagamento_dict[chave]
+            formas_pagamento.append({
+                'forma_pagamento': item['forma_pagamento'],
+                'quantidade': item['quantidade'],
+                'valor_total': round(item['valor_total'], 2)
+            })
+
+        formas_pagamento = sorted(
+            formas_pagamento,
+            key=lambda item: item['valor_total'],
+            reverse=True
+        )
+
+        return jsonify({
+            'resumo': {
+                'qtd_vendas': qtd_vendas,
+                'valor_total_vendido': round(valor_total_vendido, 2),
+                'lucro_bruto_total': round(lucro_bruto_total, 2),
+                'ticket_medio': round(ticket_medio, 2),
+                'vendas_mes_atual': vendas_mes_atual,
+                'valor_mes_atual': round(valor_mes_atual, 2)
+            },
+            'vendas': lista_vendas,
+            'calendario': calendario,
+            'grafico_mensal': grafico_mensal,
+            'formas_pagamento': formas_pagamento
+        }), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao buscar minhas vendas: {e}'}), 500
+
+    finally:
+        cursor.close()

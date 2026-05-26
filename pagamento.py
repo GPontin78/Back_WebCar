@@ -180,7 +180,7 @@ def adicionar_venda():
 
         if forma_pagamento == 1 and tipo_usuario == 1:
             valor = preco_venda
-            valor_parcela_orginal = round(float(valor/parcela), 2)
+            valor_parcela_orginal = float(valor/parcela)
             valor_certo = round(float(valor_parcela_orginal * parcela), 2)
             juro = porcentagem_juro_banco / 100
 
@@ -216,16 +216,18 @@ def adicionar_venda():
                     data_financiamento,
                     valor_venda,
                     valor_venda_financiamento,
-                    PORCENTAGEM_JURO_FINANCIAMENTO
+                    PORCENTAGEM_JURO_FINANCIAMENTO,
+                    valor_restante_financiamento
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 RETURNING id_financiamento
             """, (
                 id_venda,
                 data_venda,
                 valor,
                 valor_venda_financiamento,
-                porcentagem_juro_banco
+                porcentagem_juro_banco,
+                valor_venda_financiamento
             ))
 
             id_financiamento = cursor.fetchone()[0]
@@ -249,16 +251,20 @@ def adicionar_venda():
                         valor_parcela,
                         data_vencimento,
                         valor_parcela_original,
+                        saldo_devedor_parcela,
                         status
+                        
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
                     id_financiamento,
                     numero_parcela,
                     parcela_mensal_juro,
                     data_vencimento,
                     valor_parcela_orginal,
-                    0
+                    valor_parcela_orginal,
+                    0,
+
                 ))
 
             cursor.execute("""
@@ -530,17 +536,32 @@ def adicionar_baixa(id_financiamento):
 
         data_pagamento = datetime.now().date()
 
-        cursor.execute(""" select numero_parcela from item_financiamento 
-                            where numero_parcela = ? and id_financiamento = ? """,(parcela, id_financiamento))
-        if not cursor.fetchone():
-            return jsonify({'mensagem': 'Selecione uma parcela válida'})
+        cursor.execute(""" select saldo_devedor, valor_restante_financiamento from financiamento where id_financiamento = ? """, (id_financiamento,))
+        financiamento = cursor.fetchone()
+        saldo_devedor = float(financiamento[0])
+        valor_restante_financiamento = float(financiamento[1])
 
+        cursor.execute(""" select numero_parcela, valor_parcela, VALOR_PARCELA_ORIGINAL 
+                            from item_financiamento 
+                            where numero_parcela = ? and id_financiamento = ? """, (parcela, id_financiamento))
+        
+        parcela_banco = cursor.fetchone()
+        valor_parcela = float(parcela_banco[1])
+        valor_parcela_orginal = float(parcela_banco[2])
+
+        valor_novo_saldo = round(float(saldo_devedor - valor_parcela_orginal), 2)
+
+        valor_novo_restante = round(float(valor_restante_financiamento - valor_parcela), 2)
+        if not parcela_banco:
+            return jsonify({'mensagem': 'Selecione uma parcela válida'})
+        
         cursor.execute("""update item_financiamento set data_pagamento = ?, status = ?
                             where numero_parcela = ? and id_financiamento = ?
         """, (data_pagamento, 1, parcela, id_financiamento))
 
+        cursor.execute(""" update financiamento set saldo_devedor = ?, valor_restante_financiamento = ?
+                            where id_financiamento = ? """, (valor_novo_saldo, valor_novo_restante, id_financiamento))
         con.commit()
-
         return jsonify({'mensagem': 'Baixa realizada com sucesso'}), 200
 
     except Exception as e:
@@ -563,15 +584,30 @@ def retirar_baixa(id_financiamento):
 
         data_pagamento = datetime.now().date()
 
-        cursor.execute(""" select numero_parcela from item_financiamento 
+        cursor.execute(""" select saldo_devedor, valor_restante_financiamento from financiamento where id_financiamento = ? """, (id_financiamento,))
+        financiamento = cursor.fetchone()
+        saldo_devedor = float(financiamento[0])
+        valor_restante_financiamento = float(financiamento[1])
+
+        cursor.execute(""" select numero_parcela, valor_parcela, VALOR_PARCELA_ORIGINAL 
+                       from item_financiamento 
                             where numero_parcela = ? and id_financiamento = ? """, (parcela, id_financiamento))
-        if not cursor.fetchone():
+        parcela_banco = cursor.fetchone()
+        valor_parcela = float(parcela_banco[1])
+        valor_parcela_orginal = float(parcela_banco[2])
+
+        valor_novo_saldo = round(float(saldo_devedor + valor_parcela_orginal), 2)
+
+        valor_novo_restante = round(float(valor_restante_financiamento + valor_parcela), 2)
+        if not parcela_banco:
             return jsonify({'mensagem': 'Selecione uma parcela válida'})
 
         cursor.execute("""update item_financiamento set data_pagamento = ?, status = ?
                             where numero_parcela = ? and id_financiamento = ?
         """, (data_pagamento, 0 , parcela, id_financiamento))
 
+        cursor.execute(""" update financiamento set saldo_devedor = ?, valor_restante_financiamento = ?
+                            where id_financiamento = ? """, (valor_novo_saldo, valor_novo_restante, id_financiamento))
         con.commit()
 
         return jsonify({'mensagem': 'Baixa retirarada com sucesso'}), 200
