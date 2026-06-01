@@ -181,7 +181,7 @@ def adicionar_venda():
         if forma_pagamento == 1 and tipo_usuario == 1:
             valor = preco_venda
             valor_parcela_orginal = float(valor/parcela)
-            valor_certo = round(float(valor_parcela_orginal * parcela), 2)
+            valor_certo = float(valor_parcela_orginal * parcela)
             juro = porcentagem_juro_banco / 100
 
             parcela_mensal_juro = round(float(valor_certo * juro / (1 - (1 + juro) ** -parcela)), 2)
@@ -263,9 +263,11 @@ def adicionar_venda():
                     data_vencimento,
                     valor_parcela_orginal,
                     valor_parcela_orginal,
-                    0,
-
-                ))
+                    0,))
+            
+            cursor.execute("""
+                EXECUTE PROCEDURE SP_AJUSTA_ARREDONDAMENTO(?)
+            """, (id_financiamento,))
 
             cursor.execute("""
                 UPDATE veiculo

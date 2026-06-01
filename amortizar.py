@@ -93,6 +93,10 @@ def amortizar(id_financiamento):
                     pasta="financiamento",
                     txid=f"F{id_financiamento}P{numero_parcela}"
                 )
+            
+            cursor.execute("""
+                EXECUTE PROCEDURE SP_AJUSTA_ARREDONDAMENTO(?)
+            """, (id_financiamento,))
 
 
             con.commit()
@@ -136,6 +140,10 @@ def amortizar(id_financiamento):
                     valor=valor_restante_parcela,
                     pasta="financiamento",
                     txid=f"F{id_financiamento}P{numero_parcela}")
+
+            cursor.execute("""
+                EXECUTE PROCEDURE SP_AJUSTA_ARREDONDAMENTO(?)
+            """, (id_financiamento,))
 
             con.commit()
                 
