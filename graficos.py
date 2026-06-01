@@ -221,6 +221,7 @@ def dashboard_vendas():
 
 @app.route('/dashboard_despesas', methods=['GET'])
 def dashboard_despesas():
+    # funcao da tabela e relatorio de despesas da dashboard
     tipo_usuario = descobre_tipo_usuario()
 
     if tipo_usuario is None:
@@ -238,7 +239,10 @@ def dashboard_despesas():
                 id_despesa,
                 descricao,
                 valor,
-                data_despesa
+                data_despesa,
+                tabela,
+                id_tabela,
+                status
             FROM despesa
             ORDER BY data_despesa DESC
         """)
@@ -249,11 +253,11 @@ def dashboard_despesas():
             lista_despesas.append({
                 'id_despesa': despesa[0],
                 'descricao': despesa[1],
-                'tabela': None,
-                'id_tabela': None,
+                'tabela': despesa[4],
+                'id_tabela': despesa[5],
                 'valor': float(despesa[2] or 0),
                 'data_despesa': str(despesa[3]) if despesa[3] else None,
-                'status': 0
+                'status': int(despesa[6] or 0)
             })
 
         return jsonify({'despesas': lista_despesas}), 200
@@ -613,15 +617,20 @@ def dashboard_graficos():
         performance_vendedores = {}
         lucro_real_veiculos = []
 
+        # funcao do grafico receita, despesa e lucro
         # ==========================================================
         # FINANCEIRO MENSAL - VENDAS
         # ==========================================================
 
         # Busca todas as vendas que têm data.
         cursor.execute("""
-            SELECT data_venda, valor_venda
-            FROM venda
-            WHERE data_venda IS NOT NULL
+            SELECT
+                vd.data_venda,
+                vd.valor_venda,
+                ve.preco_custo
+            FROM venda vd
+            INNER JOIN veiculo ve ON ve.id_veiculo = vd.id_veiculo
+            WHERE vd.data_venda IS NOT NULL
         """)
         vendas = cursor.fetchall()
 
@@ -630,6 +639,7 @@ def dashboard_graficos():
         for venda in vendas:
             data_venda = venda[0]
             valor_venda = float(venda[1] or 0)
+            preco_custo = float(venda[2] or 0)
 
             # Monta uma chave tipo "2026-05".
             chave = str(data_venda.year) + '-' + str(data_venda.month).zfill(2)
@@ -640,12 +650,18 @@ def dashboard_graficos():
                     'mes': chave,
                     'receita': 0,
                     'despesas': 0,
+                    'custo_vendidos': 0,
+                    'manutencao': 0,
+                    'lucro_bruto': 0,
                     'lucro': 0
                 }
 
             # Soma o valor da venda na receita daquele mês.
             financeiro_mensal[chave]['receita'] += valor_venda
+            financeiro_mensal[chave]['custo_vendidos'] += preco_custo
+            financeiro_mensal[chave]['lucro_bruto'] += valor_venda - preco_custo
 
+        # funcao do grafico receita, despesa e lucro
         # ==========================================================
         # FINANCEIRO MENSAL - RECEITAS EXTRAS
         # ==========================================================
@@ -672,20 +688,25 @@ def dashboard_graficos():
                     'mes': chave,
                     'receita': 0,
                     'despesas': 0,
+                    'custo_vendidos': 0,
+                    'manutencao': 0,
+                    'lucro_bruto': 0,
                     'lucro': 0
                 }
 
             financeiro_mensal[chave]['receita'] += valor
 
+        # funcao do grafico receita, despesa e lucro
         # ==========================================================
         # FINANCEIRO MENSAL - DESPESAS
         # ==========================================================
 
         # Busca despesas com data.
         cursor.execute("""
-            SELECT data_despesa, valor
+            SELECT data_despesa, valor, tabela
             FROM despesa
             WHERE data_despesa IS NOT NULL
+            AND (status IS NULL OR status = 0)
         """)
         despesas = cursor.fetchall()
 
@@ -694,6 +715,7 @@ def dashboard_graficos():
         for despesa in despesas:
             data_despesa = despesa[0]
             valor = float(despesa[1] or 0)
+            tabela_despesa = despesa[2] or ''
 
             chave = str(data_despesa.year) + '-' + str(data_despesa.month).zfill(2)
 
@@ -702,10 +724,16 @@ def dashboard_graficos():
                     'mes': chave,
                     'receita': 0,
                     'despesas': 0,
+                    'custo_vendidos': 0,
+                    'manutencao': 0,
+                    'lucro_bruto': 0,
                     'lucro': 0
                 }
 
             financeiro_mensal[chave]['despesas'] += valor
+
+            if str(tabela_despesa).upper() == 'ITEM_MANUTENCAO':
+                financeiro_mensal[chave]['manutencao'] += valor
 
         financeiro_mensal_lista = []
 
@@ -721,9 +749,13 @@ def dashboard_graficos():
                 'mes': item['mes'],
                 'receita': round(item['receita'], 2),
                 'despesas': round(item['despesas'], 2),
+                'custo_vendidos': round(item['custo_vendidos'], 2),
+                'manutencao': round(item['manutencao'], 2),
+                'lucro_bruto': round(item['lucro_bruto'], 2),
                 'lucro': round(item['lucro'], 2)
             })
 
+        # funcao do grafico vendas por forma de pagamento
         # ==========================================================
         # VENDAS POR FORMA DE PAGAMENTO
         # ==========================================================
@@ -776,6 +808,7 @@ def dashboard_graficos():
                 'valor_total': round(item['valor_total'], 2)
             })
 
+        # funcao do grafico parcelas por status e fluxo futuro
         # ==========================================================
         # PARCELAS STATUS + FLUXO DE RECEBIMENTOS
         # ==========================================================
@@ -852,6 +885,7 @@ def dashboard_graficos():
                 'valor_a_receber': round(item['valor_a_receber'], 2)
             })
 
+        # funcao do grafico documentacao pendente
         # ==========================================================
         # DOCUMENTAÇÃO
         # ==========================================================
@@ -898,6 +932,7 @@ def dashboard_graficos():
                 'capital': round(item['capital'], 2)
             })
 
+        # funcao do grafico manutencao por veiculo
         # ==========================================================
         # MANUTENÇÃO POR VEÍCULO
         # ==========================================================
@@ -965,6 +1000,7 @@ def dashboard_graficos():
                     manutencao_por_veiculo_lista[i] = manutencao_por_veiculo_lista[j]
                     manutencao_por_veiculo_lista[j] = auxiliar
 
+        # funcao do grafico servicos mais usados
         # ==========================================================
         # SERVIÇOS MAIS USADOS
         # ==========================================================
@@ -1025,6 +1061,7 @@ def dashboard_graficos():
                     servicos_mais_usados_lista[i] = servicos_mais_usados_lista[j]
                     servicos_mais_usados_lista[j] = auxiliar
 
+        # funcao do grafico performance dos vendedores
         # ==========================================================
         # PERFORMANCE DOS VENDEDORES
         # ==========================================================
@@ -1094,6 +1131,7 @@ def dashboard_graficos():
                     performance_vendedores_lista[i] = performance_vendedores_lista[j]
                     performance_vendedores_lista[j] = auxiliar
 
+        # funcao do grafico lucro real por veiculo
         # ==========================================================
         # LUCRO REAL APÓS MANUTENÇÃO
         # ==========================================================
