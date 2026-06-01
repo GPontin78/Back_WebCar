@@ -30,6 +30,7 @@ def dashboard_resumo():
         total_a_receber_financiamento = 0
         qtd_parcelas_atrasadas = 0
         valor_parcelas_atrasadas = 0
+        inadimplencia_percentual = 0
 
         cursor.execute("""
             SELECT preco_custo
@@ -122,6 +123,9 @@ def dashboard_resumo():
                         qtd_parcelas_atrasadas += 1
                         valor_parcelas_atrasadas += valor_parcela
 
+        if total_a_receber_financiamento > 0:
+            inadimplencia_percentual = (valor_parcelas_atrasadas / total_a_receber_financiamento) * 100
+
         lucro_liquido_estimado = lucro_bruto_vendas + receita_extra - despesa_total
 
         return jsonify({
@@ -137,7 +141,8 @@ def dashboard_resumo():
             'qtd_financiamentos': qtd_financiamentos,
             'total_a_receber_financiamento': round(total_a_receber_financiamento, 2),
             'qtd_parcelas_atrasadas': qtd_parcelas_atrasadas,
-            'valor_parcelas_atrasadas': round(valor_parcelas_atrasadas, 2)
+            'valor_parcelas_atrasadas': round(valor_parcelas_atrasadas, 2),
+            'inadimplencia_percentual': round(inadimplencia_percentual, 2)
         }), 200
 
     except Exception as e:
