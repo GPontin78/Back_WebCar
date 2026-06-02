@@ -54,9 +54,10 @@ def amortizar(id_financiamento):
         # calcula novo saldo devedor depois da amortizacao
         novo_saldo_devedor = saldo_devedor - valor_amortizado
 
-        if novo_saldo_devedor <= 0:
-            return jsonify({'mensagem': 'Valor amortizado não pode ser maior ou igual ao saldo devedor'}), 400
-
+        if novo_saldo_devedor <= 100:
+            return jsonify({
+                'mensagem': 'Não é possível realizar a amortização, pois o saldo devedor resultante seria inferior a R$ 100,00.'
+            }), 400
         juro = porcentagem_juro_financiamento / 100
 
         # amortizacao tipo 1: mantem a quantidade de parcelas e diminui o valor mensal
@@ -104,9 +105,6 @@ def amortizar(id_financiamento):
                 )
             
             # ajusta arredondamento das parcelas no banco
-            cursor.execute("""
-                EXECUTE PROCEDURE SP_AJUSTA_ARREDONDAMENTO(?)
-            """, (id_financiamento,))
 
 
             con.commit()
@@ -147,6 +145,9 @@ def amortizar(id_financiamento):
                     
                     valor_amortizado -= saldo_parcela_devedor
                     valor_restante_parcela = round(float((valor_parcela - valor_parcela_original) + valor_restante),2)
+                    cursor.execute(""" update item_financiamento set valor_parcela = ?
+                                    where id_financiamento = ? and numero_parcela = ? """,
+                                   (valor_restante_parcela, id_financiamento, numero_parcela))
                     gerar_pix(
                     chave=chave_pix,
                     nome=nome_empresa,
@@ -156,9 +157,7 @@ def amortizar(id_financiamento):
                     txid=f"F{id_financiamento}P{numero_parcela}")
 
             # ajusta arredondamento das parcelas no banco
-            cursor.execute("""
-                EXECUTE PROCEDURE SP_AJUSTA_ARREDONDAMENTO(?)
-            """, (id_financiamento,))
+
 
             con.commit()
                 
@@ -167,6 +166,35 @@ def amortizar(id_financiamento):
     except Exception as e:
         con.rollback()
         return jsonify({'mensagem': f'Erro ao concluir amortização: {str(e)}'}), 500
+
+    finally:
+        cursor.close()
+
+@app.route('/saldo_devedor/<int:id_financiamento>', methods=['GET'])
+def saldo_devedor(id_financiamento):
+    cursor = con.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT saldo_devedor
+            FROM financiamento
+            WHERE id_financiamento = ?
+        """, (id_financiamento,))
+
+        financiamento = cursor.fetchone()
+
+        if not financiamento:
+            return jsonify({'mensagem': 'Financiamento não encontrado'}), 404
+
+        return jsonify({
+            'id_financiamento': id_financiamento,
+            'saldo_devedor': float(financiamento[0] or 0)
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            'mensagem': f'Erro ao buscar saldo devedor: {str(e)}'
+        }), 500
 
     finally:
         cursor.close()

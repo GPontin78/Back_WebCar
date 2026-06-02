@@ -561,8 +561,8 @@ def adicionar_baixa(id_financiamento):
                             where numero_parcela = ? and id_financiamento = ?
         """, (data_pagamento, 1, parcela, id_financiamento))
 
-        cursor.execute(""" update financiamento set saldo_devedor = ?, valor_restante_financiamento = ?
-                            where id_financiamento = ? """, (valor_novo_saldo, valor_novo_restante, id_financiamento))
+        cursor.execute(""" update financiamento set valor_restante_financiamento = ?
+                            where id_financiamento = ? """, ( valor_novo_restante, id_financiamento))
         con.commit()
         return jsonify({'mensagem': 'Baixa realizada com sucesso'}), 200
 
@@ -608,8 +608,8 @@ def retirar_baixa(id_financiamento):
                             where numero_parcela = ? and id_financiamento = ?
         """, (data_pagamento, 0 , parcela, id_financiamento))
 
-        cursor.execute(""" update financiamento set saldo_devedor = ?, valor_restante_financiamento = ?
-                            where id_financiamento = ? """, (valor_novo_saldo, valor_novo_restante, id_financiamento))
+        cursor.execute(""" update financiamento set valor_restante_financiamento = ?
+                            where id_financiamento = ? """, (valor_novo_restante, id_financiamento))
         con.commit()
 
         return jsonify({'mensagem': 'Baixa retirarada com sucesso'}), 200

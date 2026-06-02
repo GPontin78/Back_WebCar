@@ -342,7 +342,7 @@ def login():
 
             con.commit()
 
-            return jsonify({'mensagem': 'Email ou senha invalida'}), 401
+            return jsonify({'mensagem': 'Email ou senha inválida'}), 401
 
         token = gerar_token(id_usuario, tipo)
 
