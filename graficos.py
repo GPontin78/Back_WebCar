@@ -274,6 +274,55 @@ def dashboard_despesas():
         cursor.close()
 
 
+@app.route('/dashboard_receitas', methods=['GET'])
+def dashboard_receitas():
+    tipo_usuario = descobre_tipo_usuario()
+
+    if tipo_usuario is None:
+        return jsonify({'mensagem': 'UsuÃ¡rio nÃ£o logado'}), 403
+
+    if tipo_usuario != 0:
+        return jsonify({'mensagem': 'Apenas ADM pode acessar'}), 403
+
+    try:
+        cursor = con.cursor()
+        lista_receitas = []
+
+        cursor.execute("""
+            SELECT
+                id_receita,
+                descricao,
+                valor,
+                data_receita,
+                tabela,
+                id_tabela,
+                status
+            FROM receita
+            ORDER BY data_receita DESC
+        """)
+
+        receitas = cursor.fetchall()
+
+        for receita in receitas:
+            lista_receitas.append({
+                'id_receita': receita[0],
+                'descricao': receita[1],
+                'valor': float(receita[2] or 0),
+                'data_receita': str(receita[3]) if receita[3] else None,
+                'tabela': receita[4],
+                'id_tabela': receita[5],
+                'status': int(receita[6] or 0)
+            })
+
+        return jsonify({'receitas': lista_receitas}), 200
+
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao buscar receitas: {str(e)}'}), 500
+
+    finally:
+        cursor.close()
+
+
 @app.route('/dashboard_financiamentos', methods=['GET'])
 def dashboard_financiamentos():
     tipo_usuario = descobre_tipo_usuario()
