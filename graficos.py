@@ -110,7 +110,7 @@ def dashboard_resumo():
             data_vencimento = parcela[1]
             status = int(parcela[2] or 0)
 
-            if status == 0:
+            if status in(0,3):
                 total_a_receber_financiamento += valor_parcela
 
                 if data_vencimento:

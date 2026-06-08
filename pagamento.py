@@ -4,7 +4,6 @@ from funcao import descobre_tipo_usuario, descobre_id_usuario, gerar_pix
 from datetime import datetime, timedelta
 import os
 
-
 @app.route('/adicionar_venda', methods=['POST'])
 def adicionar_venda():
     dados = request.get_json()
@@ -110,10 +109,13 @@ def adicionar_venda():
 
         data_venda = datetime.now()
 
+        # =====================================================
+        # VENDA À VISTA / PIX
+        # =====================================================
         if forma_pagamento == 0 or tipo_usuario == 2:
-            valor_venda_desconto = float(
+            valor_venda_desconto = round(float(
                 preco_venda - (preco_venda * (desconto_a_vista_banco / 100))
-            )
+            ), 2)
 
             cursor.execute("""
                 INSERT INTO venda (
@@ -178,15 +180,25 @@ def adicionar_venda():
 
             return send_file(pix['imagem'], mimetype='image/png')
 
+        # =====================================================
+        # VENDA FINANCIADA - TABELA PRICE
+        # =====================================================
         if forma_pagamento == 1 and tipo_usuario == 1:
-            valor = preco_venda
-            valor_parcela_orginal = float(valor/parcela)
-            valor_certo = float(valor_parcela_orginal * parcela)
-            juro = porcentagem_juro_banco / 100
+            valor = round(float(preco_venda), 2)
+            juro = float(porcentagem_juro_banco) / 100
 
-            parcela_mensal_juro = round(float(valor_certo * juro / (1 - (1 + juro) ** -parcela)), 2)
+            if juro == 0:
+                parcela_mensal_juro_sem_arredondar = valor / parcela
+                parcela_mensal_juro = round(parcela_mensal_juro_sem_arredondar, 2)
+            else:
+                parcela_mensal_juro_sem_arredondar = (
+                    valor * juro / (1 - (1 + juro) ** -parcela)
+                )
+                parcela_mensal_juro = round(parcela_mensal_juro_sem_arredondar, 2)
 
-            valor_venda_financiamento = round(float(parcela_mensal_juro * parcela),2)
+            # Regra do sistema:
+            # valor total = valor da parcela já arredondada × quantidade de parcelas
+            valor_venda_financiamento = round(parcela_mensal_juro * parcela, 2)
 
             cursor.execute("""
                 INSERT INTO venda (
@@ -216,7 +228,7 @@ def adicionar_venda():
                     data_financiamento,
                     valor_venda,
                     valor_venda_financiamento,
-                    PORCENTAGEM_JURO_FINANCIAMENTO,
+                    porcentagem_juro_financiamento,
                     valor_restante_financiamento
                 )
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -232,14 +244,28 @@ def adicionar_venda():
 
             id_financiamento = cursor.fetchone()[0]
 
+            saldo_devedor = valor
+
             for numero_parcela in range(1, parcela + 1):
                 data_vencimento = data_venda + timedelta(days=30 * numero_parcela)
+
+                valor_parcela_atual = parcela_mensal_juro
+
+                juros_parcela = round(saldo_devedor * juro, 2)
+                amortizacao_parcela = round(valor_parcela_atual - juros_parcela, 2)
+
+                if numero_parcela == parcela:
+                    amortizacao_parcela = round(saldo_devedor, 2)
+                    juros_parcela = round(valor_parcela_atual - amortizacao_parcela, 2)
+                    saldo_devedor_parcela = 0.00
+                else:
+                    saldo_devedor_parcela = round(saldo_devedor - amortizacao_parcela, 2)
 
                 gerar_pix(
                     chave=chave_pix,
                     nome=nome_empresa,
                     cidade=cidade_empresa,
-                    valor=parcela_mensal_juro,
+                    valor=valor_parcela_atual,
                     pasta="financiamento",
                     txid=f"F{id_financiamento}P{numero_parcela}"
                 )
@@ -250,24 +276,26 @@ def adicionar_venda():
                         numero_parcela,
                         valor_parcela,
                         data_vencimento,
-                        valor_parcela_original,
+                        juros_parcela,
+                        amortizacao_parcela,
+                        porcentagem_juro_parcela,
                         saldo_devedor_parcela,
                         status
-                        
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     id_financiamento,
                     numero_parcela,
-                    parcela_mensal_juro,
+                    valor_parcela_atual,
                     data_vencimento,
-                    valor_parcela_orginal,
-                    valor_parcela_orginal,
-                    0,))
-            
-            cursor.execute("""
-                EXECUTE PROCEDURE SP_AJUSTA_ARREDONDAMENTO(?)
-            """, (id_financiamento,))
+                    juros_parcela,
+                    amortizacao_parcela,
+                    porcentagem_juro_banco,
+                    saldo_devedor_parcela,
+                    0
+                ))
+
+                saldo_devedor = saldo_devedor_parcela
 
             cursor.execute("""
                 UPDATE veiculo
@@ -282,7 +310,8 @@ def adicionar_venda():
                 'id_venda': id_venda,
                 'id_financiamento': id_financiamento,
                 'porcentagem_juro': porcentagem_juro_banco,
-                'valor_parcela': round(parcela_mensal_juro, 2),
+                'valor_parcela': parcela_mensal_juro,
+                'quantidade_parcelas': parcela,
                 'valor_total': valor_venda_financiamento
             }), 200
 
@@ -292,7 +321,6 @@ def adicionar_venda():
 
     finally:
         cursor.close()
-
 
 @app.route('/adicionar_receita', methods=['POST'])
 def adicionar_receita():
@@ -529,94 +557,187 @@ def deletar_depesa(id_despesa):
 @app.route('/adicionar_baixa/<int:id_financiamento>', methods=['PUT'])
 def adicionar_baixa(id_financiamento):
     dados = request.get_json()
-    parcela = int(dados.get('parcela'))
+    parcela = dados.get('parcela')
+
+    if not parcela:
+        return jsonify({'mensagem': 'Digite uma parcela'}), 400
+
+    parcela = int(parcela)
 
     try:
         cursor = con.cursor()
-        if not parcela:
-            return jsonify({'mensagem': 'Digite uma parcela '})
 
         data_pagamento = datetime.now().date()
 
-        cursor.execute(""" select saldo_devedor, valor_restante_financiamento from financiamento where id_financiamento = ? """, (id_financiamento,))
+        cursor.execute("""
+            SELECT valor_restante_financiamento
+            FROM financiamento
+            WHERE id_financiamento = ?
+        """, (id_financiamento,))
+
         financiamento = cursor.fetchone()
-        saldo_devedor = float(financiamento[0])
-        valor_restante_financiamento = float(financiamento[1])
 
-        cursor.execute(""" select numero_parcela, valor_parcela, VALOR_PARCELA_ORIGINAL 
-                            from item_financiamento 
-                            where numero_parcela = ? and id_financiamento = ? """, (parcela, id_financiamento))
-        
+        if not financiamento:
+            return jsonify({'mensagem': 'Financiamento não encontrado'}), 404
+
+        valor_restante_financiamento = float(financiamento[0] or 0)
+
+        cursor.execute("""
+            SELECT
+                numero_parcela,
+                valor_parcela,
+                amortizacao_parcela,
+                status
+            FROM item_financiamento
+            WHERE numero_parcela = ?
+            AND id_financiamento = ?
+        """, (parcela, id_financiamento))
+
         parcela_banco = cursor.fetchone()
-        valor_parcela = float(parcela_banco[1])
-        valor_parcela_orginal = float(parcela_banco[2])
 
-        valor_novo_saldo = round(float(saldo_devedor - valor_parcela_orginal), 2)
-
-        valor_novo_restante = round(float(valor_restante_financiamento - valor_parcela), 2)
         if not parcela_banco:
-            return jsonify({'mensagem': 'Selecione uma parcela válida'})
-        
-        cursor.execute("""update item_financiamento set data_pagamento = ?, status = ?
-                            where numero_parcela = ? and id_financiamento = ?
-        """, (data_pagamento, 1, parcela, id_financiamento))
+            return jsonify({'mensagem': 'Selecione uma parcela válida'}), 400
 
-        cursor.execute(""" update financiamento set valor_restante_financiamento = ?
-                            where id_financiamento = ? """, ( valor_novo_restante, id_financiamento))
+        status_parcela = int(parcela_banco[3] or 0)
+
+        if status_parcela == 1:
+            return jsonify({'mensagem': 'Esta parcela já está paga'}), 400
+
+        valor_parcela = float(parcela_banco[1] or 0)
+
+        valor_novo_restante = round(
+            valor_restante_financiamento - valor_parcela,
+            2
+        )
+
+        if valor_novo_restante < 0:
+            valor_novo_restante = 0
+
+        cursor.execute("""
+            UPDATE item_financiamento
+            SET data_pagamento = ?,
+                status = ?
+            WHERE numero_parcela = ?
+            AND id_financiamento = ?
+        """, (
+            data_pagamento,
+            1,
+            parcela,
+            id_financiamento
+        ))
+
+        cursor.execute("""
+            UPDATE financiamento
+            SET valor_restante_financiamento = ?
+            WHERE id_financiamento = ?
+        """, (
+            valor_novo_restante,
+            id_financiamento
+        ))
+
         con.commit()
+
         return jsonify({'mensagem': 'Baixa realizada com sucesso'}), 200
 
     except Exception as e:
-        return jsonify({'mensagem': f'Erro ao adicionar baixa: {str(e)}'})
+        con.rollback()
+        return jsonify({'mensagem': f'Erro ao adicionar baixa: {str(e)}'}), 500
+
+    finally:
+        cursor.close()
 
 
 @app.route('/retirar_baixa/<int:id_financiamento>', methods=['PUT'])
 def retirar_baixa(id_financiamento):
     dados = request.get_json()
-    parcela = int(dados.get('parcela'))
+    parcela = dados.get('parcela')
+
+    if not parcela:
+        return jsonify({'mensagem': 'Digite uma parcela'}), 400
+
+    parcela = int(parcela)
 
     tipo_usuario = descobre_tipo_usuario()
+
     if tipo_usuario != 0:
-        return jsonify({'mensagem': 'Apenas Adm pode cadastrar'}), 403
+        return jsonify({'mensagem': 'Apenas Adm pode retirar baixa'}), 403
 
     try:
         cursor = con.cursor()
-        if not parcela:
-            return jsonify({'mensagem': 'Digite uma parcela '})
 
-        data_pagamento = datetime.now().date()
+        cursor.execute("""
+            SELECT valor_restante_financiamento
+            FROM financiamento
+            WHERE id_financiamento = ?
+        """, (id_financiamento,))
 
-        cursor.execute(""" select saldo_devedor, valor_restante_financiamento from financiamento where id_financiamento = ? """, (id_financiamento,))
         financiamento = cursor.fetchone()
-        saldo_devedor = float(financiamento[0])
-        valor_restante_financiamento = float(financiamento[1])
 
-        cursor.execute(""" select numero_parcela, valor_parcela, VALOR_PARCELA_ORIGINAL 
-                       from item_financiamento 
-                            where numero_parcela = ? and id_financiamento = ? """, (parcela, id_financiamento))
+        if not financiamento:
+            return jsonify({'mensagem': 'Financiamento não encontrado'}), 404
+
+        valor_restante_financiamento = float(financiamento[0] or 0)
+
+        cursor.execute("""
+            SELECT
+                numero_parcela,
+                valor_parcela,
+                amortizacao_parcela,
+                status
+            FROM item_financiamento
+            WHERE numero_parcela = ?
+            AND id_financiamento = ?
+        """, (parcela, id_financiamento))
+
         parcela_banco = cursor.fetchone()
-        valor_parcela = float(parcela_banco[1])
-        valor_parcela_orginal = float(parcela_banco[2])
 
-        valor_novo_saldo = round(float(saldo_devedor + valor_parcela_orginal), 2)
-
-        valor_novo_restante = round(float(valor_restante_financiamento + valor_parcela), 2)
         if not parcela_banco:
-            return jsonify({'mensagem': 'Selecione uma parcela válida'})
+            return jsonify({'mensagem': 'Selecione uma parcela válida'}), 400
 
-        cursor.execute("""update item_financiamento set data_pagamento = ?, status = ?
-                            where numero_parcela = ? and id_financiamento = ?
-        """, (data_pagamento, 0 , parcela, id_financiamento))
+        status_parcela = int(parcela_banco[3] or 0)
 
-        cursor.execute(""" update financiamento set valor_restante_financiamento = ?
-                            where id_financiamento = ? """, (valor_novo_restante, id_financiamento))
+        if status_parcela != 1:
+            return jsonify({'mensagem': 'Esta parcela não está paga'}), 400
+
+        valor_parcela = float(parcela_banco[1] or 0)
+
+        valor_novo_restante = round(
+            valor_restante_financiamento + valor_parcela,
+            2
+        )
+
+        cursor.execute("""
+            UPDATE item_financiamento
+            SET data_pagamento = ?,
+                status = ?
+            WHERE numero_parcela = ?
+            AND id_financiamento = ?
+        """, (
+            None,
+            0,
+            parcela,
+            id_financiamento
+        ))
+
+        cursor.execute("""
+            UPDATE financiamento
+            SET valor_restante_financiamento = ?
+            WHERE id_financiamento = ?
+        """, (
+            valor_novo_restante,
+            id_financiamento
+        ))
+
         con.commit()
 
-        return jsonify({'mensagem': 'Baixa retirarada com sucesso'}), 200
+        return jsonify({'mensagem': 'Baixa retirada com sucesso'}), 200
 
     except Exception as e:
-        return jsonify({'mensagem': f'Erro ao retirar baixa: {str(e)}'})
+        con.rollback()
+        return jsonify({'mensagem': f'Erro ao retirar baixa: {str(e)}'}), 500
 
+    finally:
+        cursor.close()
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
