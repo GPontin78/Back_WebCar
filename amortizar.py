@@ -66,7 +66,7 @@ def amortizar(id_financiamento):
 
             novo_valor_financiamento = round(float(parcela_mensal_juro_novo * parcela_restante),2)
 
-            valor_parcela_original = round(float(novo_saldo_devedor/parcela_restante),2)
+            valor_parcela_original = float(novo_saldo_devedor/parcela_restante)
 
             # atualiza o valor restante do financiamento
             cursor.execute("""
@@ -105,6 +105,9 @@ def amortizar(id_financiamento):
                 )
             
             # ajusta arredondamento das parcelas no banco
+            cursor.execute("""
+                EXECUTE PROCEDURE PR_AJUSTA_ARREDONDAMENTO_AMORTIZACAO(?, ?)
+            """, (id_financiamento, novo_saldo_devedor))
 
 
             con.commit()
@@ -155,8 +158,6 @@ def amortizar(id_financiamento):
                     valor=valor_restante_parcela,
                     pasta="financiamento",
                     txid=f"F{id_financiamento}P{numero_parcela}")
-
-            # ajusta arredondamento das parcelas no banco
 
 
             con.commit()
