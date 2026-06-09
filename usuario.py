@@ -71,6 +71,17 @@ def login_google():
             if situacao == 1:
                 return jsonify({'mensagem': 'Usuário bloqueado'}), 403
 
+            caminho_imagem = os.path.join(
+                app.config['UPLOAD_FOLDER'],
+                "Usuarios",
+                f"{id_usuario}.jpg"
+            )
+
+            if os.path.exists(caminho_imagem):
+                imagem_usuario = f"/uploads/Usuarios/{id_usuario}.jpg"
+            else:
+                imagem_usuario = foto_google
+
             token = gerar_token(id_usuario, tipo_usuario)
 
             resposta = make_response(jsonify({
@@ -83,7 +94,7 @@ def login_google():
                     'telefone': telefone,
                     'cpf': cpf,
                     'imagem_google': foto_google,
-                    'imagem': foto_google
+                    'imagem': imagem_usuario
                 },
                 'token': token
             }), 200)
@@ -92,8 +103,8 @@ def login_google():
                 'access_token',
                 token,
                 httponly=True,
-                secure=False,
-                samesite='Lax',
+                secure=True,
+                samesite='None',
                 path="/",
                 max_age=7200
             )
@@ -151,8 +162,8 @@ def login_google():
             'access_token',
             token,
             httponly=True,
-            secure=False,
-            samesite='Lax',
+            secure=True,
+            samesite='None',
             path="/",
             max_age=7200
         )
@@ -167,7 +178,9 @@ def login_google():
         return jsonify({'mensagem': f'Erro ao fazer login com Google: {str(e)}'}), 500
 
     finally:
+        if cursor:
             cursor.close()
+
 
 @app.route('/adicionar_usuario', methods=['POST'])
 def adicionar_usuario():
@@ -363,15 +376,16 @@ def login():
                 'tipo': tipo,
                 'telefone': telefone,
                 'cpf': cpf
-            }
+            },
+            'token': token
         }), 200)
 
         resposta.set_cookie(
             'access_token',
             token,
             httponly=True,
-            secure=False,
-            samesite='Lax',
+            secure=True,
+            samesite='None',
             path="/",
             max_age=7200
         )

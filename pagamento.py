@@ -1,8 +1,8 @@
-from flask import jsonify, request, send_from_directory, send_file
+import os
+from flask import jsonify, request, send_file, send_from_directory
 from main import app, con
 from funcao import descobre_tipo_usuario, descobre_id_usuario, gerar_pix
 from datetime import datetime, timedelta
-import os
 
 @app.route('/adicionar_venda', methods=['POST'])
 def adicionar_venda():
@@ -49,7 +49,7 @@ def adicionar_venda():
                 SELECT id_usuario
                 FROM usuario
                 WHERE cpf = ?
-                AND tipo = ?
+                  AND tipo = ?
             """, (cpf_cliente, 2))
 
             cliente = cursor.fetchone()
@@ -72,7 +72,7 @@ def adicionar_venda():
         if not veiculo:
             return jsonify({'mensagem': 'Selecione um veiculo'}), 400
 
-        preco_venda = float(veiculo[0])
+        preco_venda = round(float(veiculo[0] or 0), 2)
         id_empresa_veiculo = veiculo[1]
         status = veiculo[3]
         id_marca = veiculo[4]
@@ -101,8 +101,8 @@ def adicionar_venda():
         if not empresa:
             return jsonify({'mensagem': 'Empresa do veículo não encontrada'}), 404
 
-        desconto_a_vista_banco = float(empresa[0] or 0)
-        porcentagem_juro_banco = float(empresa[1] or 0)
+        desconto_a_vista_banco = round(float(empresa[0] or 0), 2)
+        porcentagem_juro_banco = round(float(empresa[1] or 0), 2)
         chave_pix = empresa[2]
         nome_empresa = empresa[3]
         cidade_empresa = empresa[4]
@@ -110,12 +110,13 @@ def adicionar_venda():
         data_venda = datetime.now()
 
         # =====================================================
-        # VENDA À VISTA / PIX
+        # VENDA À VISTA
         # =====================================================
         if forma_pagamento == 0 or tipo_usuario == 2:
-            valor_venda_desconto = round(float(
-                preco_venda - (preco_venda * (desconto_a_vista_banco / 100))
-            ), 2)
+            valor_venda_desconto = round(
+                preco_venda - (preco_venda * (desconto_a_vista_banco / 100)),
+                2
+            )
 
             cursor.execute("""
                 INSERT INTO venda (
@@ -181,23 +182,20 @@ def adicionar_venda():
             return send_file(pix['imagem'], mimetype='image/png')
 
         # =====================================================
-        # VENDA FINANCIADA - TABELA PRICE
+        # VENDA FINANCIADA
         # =====================================================
         if forma_pagamento == 1 and tipo_usuario == 1:
-            valor = round(float(preco_venda), 2)
-            juro = float(porcentagem_juro_banco) / 100
+            valor = preco_venda
+            juro = porcentagem_juro_banco / 100
 
             if juro == 0:
-                parcela_mensal_juro_sem_arredondar = valor / parcela
-                parcela_mensal_juro = round(parcela_mensal_juro_sem_arredondar, 2)
+                parcela_mensal_juro = round(valor / parcela, 2)
             else:
-                parcela_mensal_juro_sem_arredondar = (
-                    valor * juro / (1 - (1 + juro) ** -parcela)
+                parcela_mensal_juro = round(
+                    valor * juro / (1 - (1 + juro) ** -parcela),
+                    2
                 )
-                parcela_mensal_juro = round(parcela_mensal_juro_sem_arredondar, 2)
 
-            # Regra do sistema:
-            # valor total = valor da parcela já arredondada × quantidade de parcelas
             valor_venda_financiamento = round(parcela_mensal_juro * parcela, 2)
 
             cursor.execute("""
@@ -296,6 +294,80 @@ def adicionar_venda():
                 ))
 
                 saldo_devedor = saldo_devedor_parcela
+
+            # =====================================================
+            # AJUSTE FINAL DE CENTAVOS
+            # Mantém valor_parcela igual em todas.
+            # Ajusta diferença na última parcela:
+            # amortização recebe a diferença
+            # juros perde a diferença
+            # =====================================================
+            cursor.execute("""
+                SELECT id_item_financiamento
+                FROM item_financiamento
+                WHERE id_financiamento = ?
+                  AND numero_parcela = (
+                      SELECT MAX(numero_parcela)
+                      FROM item_financiamento
+                      WHERE id_financiamento = ?
+                  )
+            """, (id_financiamento, id_financiamento))
+
+            ultima_parcela = cursor.fetchone()
+
+            cursor.execute("""
+                SELECT amortizacao_parcela
+                FROM item_financiamento
+                WHERE id_financiamento = ?
+            """, (id_financiamento,))
+
+            parcelas_amortizacao = cursor.fetchall()
+
+            soma_amortizacao = 0
+
+            for parcela_amortizacao in parcelas_amortizacao:
+                soma_amortizacao = round(
+                    soma_amortizacao + float(parcela_amortizacao[0] or 0),
+                    2
+                )
+
+            diferenca_amortizacao = round(valor - soma_amortizacao, 2)
+
+            if ultima_parcela and diferenca_amortizacao != 0:
+                id_ultima_parcela = ultima_parcela[0]
+
+                cursor.execute("""
+                    SELECT
+                        valor_parcela,
+                        juros_parcela,
+                        amortizacao_parcela
+                    FROM item_financiamento
+                    WHERE id_item_financiamento = ?
+                """, (id_ultima_parcela,))
+
+                ultima = cursor.fetchone()
+
+                valor_parcela_ultima = round(float(ultima[0] or 0), 2)
+                juros_ultima = round(float(ultima[1] or 0), 2)
+                amortizacao_ultima = round(float(ultima[2] or 0), 2)
+
+                nova_amortizacao = round(amortizacao_ultima + diferenca_amortizacao, 2)
+                novo_juros = round(juros_ultima - diferenca_amortizacao, 2)
+
+                cursor.execute("""
+                    UPDATE item_financiamento
+                    SET
+                        juros_parcela = ?,
+                        amortizacao_parcela = ?,
+                        valor_parcela = ?,
+                        saldo_devedor_parcela = 0
+                    WHERE id_item_financiamento = ?
+                """, (
+                    novo_juros,
+                    nova_amortizacao,
+                    valor_parcela_ultima,
+                    id_ultima_parcela
+                ))
 
             cursor.execute("""
                 UPDATE veiculo
@@ -564,9 +636,9 @@ def adicionar_baixa(id_financiamento):
 
     parcela = int(parcela)
 
-    try:
-        cursor = con.cursor()
+    cursor = con.cursor()
 
+    try:
         data_pagamento = datetime.now().date()
 
         cursor.execute("""
@@ -580,17 +652,16 @@ def adicionar_baixa(id_financiamento):
         if not financiamento:
             return jsonify({'mensagem': 'Financiamento não encontrado'}), 404
 
-        valor_restante_financiamento = float(financiamento[0] or 0)
+        valor_restante_financiamento = round(float(financiamento[0] or 0), 2)
 
         cursor.execute("""
             SELECT
                 numero_parcela,
                 valor_parcela,
-                amortizacao_parcela,
                 status
             FROM item_financiamento
             WHERE numero_parcela = ?
-            AND id_financiamento = ?
+              AND id_financiamento = ?
         """, (parcela, id_financiamento))
 
         parcela_banco = cursor.fetchone()
@@ -598,17 +669,16 @@ def adicionar_baixa(id_financiamento):
         if not parcela_banco:
             return jsonify({'mensagem': 'Selecione uma parcela válida'}), 400
 
-        status_parcela = int(parcela_banco[3] or 0)
+        valor_parcela = round(float(parcela_banco[1] or 0), 2)
+        status_parcela = int(parcela_banco[2] or 0)
 
         if status_parcela == 1:
             return jsonify({'mensagem': 'Esta parcela já está paga'}), 400
 
-        valor_parcela = float(parcela_banco[1] or 0)
+        if status_parcela == 2:
+            return jsonify({'mensagem': 'Esta parcela foi quitada por amortização'}), 400
 
-        valor_novo_restante = round(
-            valor_restante_financiamento - valor_parcela,
-            2
-        )
+        valor_novo_restante = round(valor_restante_financiamento - valor_parcela, 2)
 
         if valor_novo_restante < 0:
             valor_novo_restante = 0
@@ -618,7 +688,7 @@ def adicionar_baixa(id_financiamento):
             SET data_pagamento = ?,
                 status = ?
             WHERE numero_parcela = ?
-            AND id_financiamento = ?
+              AND id_financiamento = ?
         """, (
             data_pagamento,
             1,
@@ -637,7 +707,12 @@ def adicionar_baixa(id_financiamento):
 
         con.commit()
 
-        return jsonify({'mensagem': 'Baixa realizada com sucesso'}), 200
+        return jsonify({
+            'mensagem': 'Baixa realizada com sucesso',
+            'parcela': parcela,
+            'valor_pago': valor_parcela,
+            'valor_restante_financiamento': valor_novo_restante
+        }), 200
 
     except Exception as e:
         con.rollback()
@@ -662,9 +737,9 @@ def retirar_baixa(id_financiamento):
     if tipo_usuario != 0:
         return jsonify({'mensagem': 'Apenas Adm pode retirar baixa'}), 403
 
-    try:
-        cursor = con.cursor()
+    cursor = con.cursor()
 
+    try:
         cursor.execute("""
             SELECT valor_restante_financiamento
             FROM financiamento
@@ -676,17 +751,16 @@ def retirar_baixa(id_financiamento):
         if not financiamento:
             return jsonify({'mensagem': 'Financiamento não encontrado'}), 404
 
-        valor_restante_financiamento = float(financiamento[0] or 0)
+        valor_restante_financiamento = round(float(financiamento[0] or 0), 2)
 
         cursor.execute("""
             SELECT
                 numero_parcela,
                 valor_parcela,
-                amortizacao_parcela,
                 status
             FROM item_financiamento
             WHERE numero_parcela = ?
-            AND id_financiamento = ?
+              AND id_financiamento = ?
         """, (parcela, id_financiamento))
 
         parcela_banco = cursor.fetchone()
@@ -694,26 +768,21 @@ def retirar_baixa(id_financiamento):
         if not parcela_banco:
             return jsonify({'mensagem': 'Selecione uma parcela válida'}), 400
 
-        status_parcela = int(parcela_banco[3] or 0)
+        valor_parcela = round(float(parcela_banco[1] or 0), 2)
+        status_parcela = int(parcela_banco[2] or 0)
 
         if status_parcela != 1:
-            return jsonify({'mensagem': 'Esta parcela não está paga'}), 400
+            return jsonify({'mensagem': 'Esta parcela não está paga normalmente'}), 400
 
-        valor_parcela = float(parcela_banco[1] or 0)
-
-        valor_novo_restante = round(
-            valor_restante_financiamento + valor_parcela,
-            2
-        )
+        valor_novo_restante = round(valor_restante_financiamento + valor_parcela, 2)
 
         cursor.execute("""
             UPDATE item_financiamento
-            SET data_pagamento = ?,
+            SET data_pagamento = NULL,
                 status = ?
             WHERE numero_parcela = ?
-            AND id_financiamento = ?
+              AND id_financiamento = ?
         """, (
-            None,
             0,
             parcela,
             id_financiamento
@@ -730,7 +799,12 @@ def retirar_baixa(id_financiamento):
 
         con.commit()
 
-        return jsonify({'mensagem': 'Baixa retirada com sucesso'}), 200
+        return jsonify({
+            'mensagem': 'Baixa retirada com sucesso',
+            'parcela': parcela,
+            'valor_estornado': valor_parcela,
+            'valor_restante_financiamento': valor_novo_restante
+        }), 200
 
     except Exception as e:
         con.rollback()
@@ -873,7 +947,8 @@ def minhas_compras():
                 vendedor.nome,
                 f.id_financiamento,
                 f.valor_venda,
-                f.valor_venda_financiamento
+                f.valor_venda_financiamento,
+                f.saldo_devedor
             FROM venda v
             INNER JOIN veiculo vei ON vei.id_veiculo = v.id_veiculo
             INNER JOIN marca m ON m.id_marca = vei.id_marca
@@ -897,7 +972,10 @@ def minhas_compras():
                         valor_parcela,
                         data_vencimento,
                         data_pagamento,
-                        COALESCE(status, 0)
+                        COALESCE(status, 0),
+                        juros_parcela,
+                        amortizacao_parcela,
+                        saldo_devedor_parcela
                     FROM item_financiamento
                     WHERE id_financiamento = ?
                     ORDER BY numero_parcela
@@ -912,6 +990,9 @@ def minhas_compras():
                         'data_vencimento': item[2],
                         'data_pagamento': item[3],
                         'status': int(item[4] or 0),
+                        'juros_parcela': float(item[5] or 0),
+                        'amortizacao_parcela': float(item[6] or 0),
+                        'saldo_devedor_parcela': float(item[7] or 0),
                         'qrcode_url': f'{request.host_url}qrcode_financiamento/{id_financiamento}/{item[0]}'
                     })
 
@@ -929,6 +1010,7 @@ def minhas_compras():
                 'id_financiamento': id_financiamento,
                 'valor_original': float(venda[11] or 0),
                 'valor_financiado': float(venda[12] or 0),
+                'saldo_devedor': float(venda[13] or 0),
                 'parcelas': parcelas
             })
 

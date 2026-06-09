@@ -56,28 +56,62 @@ def gerar_token(id_usuario, tipo):
 
 
 
-def descobre_tipo_usuario():
+def pegar_token_requisicao():
     token = request.cookies.get('access_token')
-    print("TOKEN RECEBIDO:", token)
+
+    if token:
+        return token
+
+    authorization = request.headers.get('Authorization')
+
+    if authorization:
+        partes = authorization.split()
+
+        if len(partes) == 2 and partes[0].lower() == 'bearer':
+            return partes[1]
+
+    return None
+
+
+def decodificar_token_requisicao():
+    token = pegar_token_requisicao()
 
     if not token:
         return None
 
     try:
-        payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-        print("PAYLOAD:", payload)
-        print("TIPO:", payload['tipo'])
-        return payload['tipo']
+        payload = jwt.decode(
+            token,
+            app.config['SECRET_KEY'],
+            algorithms=['HS256']
+        )
+
+        return payload
+
     except Exception as e:
         print("ERRO TOKEN:", e)
         return None
 
-def descobre_id_usuario():
-    token = request.cookies.get('access_token')
-    if not token:
+
+def descobre_tipo_usuario():
+    payload = decodificar_token_requisicao()
+
+    if not payload:
         return None
+
     try:
-        payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        return int(payload['tipo'])
+    except:
+        return None
+
+
+def descobre_id_usuario():
+    payload = decodificar_token_requisicao()
+
+    if not payload:
+        return None
+
+    try:
         return int(payload['id_usuario'])
     except:
         return None
