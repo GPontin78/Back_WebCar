@@ -1,4 +1,10 @@
 from waitress import serve
 from main import app
 
-serve(app, host="0.0.0.0", port=5000, threads=30)
+if __name__ == "__main__":
+    serve(
+        app,
+        host=app.config["HOST"],
+        port=app.config["PORT"],
+        threads=app.config["WAITRESS_THREADS"],
+    )
