@@ -2,9 +2,10 @@
 
 echo "Iniciando Firebird..."
 
-service firebird3.0 start || true
+service firebird3.0 start
 
-sleep 3
+echo "Aguardando Firebird subir..."
+sleep 10
 
 echo "Iniciando backend Flask..."
 
