@@ -31,24 +31,13 @@ database = app.config['DB_NAME']
 user = app.config['DB_USER']
 password = app.config['DB_PASSWORD']
 con = None
-
 try:
-    # Se tiver host, conecta como servidor Firebird
-    if host:
-        con = fdb.connect(
-            host=host,
-            database=database,
-            user=user,
-            password=password
-        )
-    # Se não tiver host, tenta conectar direto no arquivo .FDB
-    else:
-        con = fdb.connect(
-            database=database,
-            user=user,
-            password=password
-        )
-
+    con = fdb.connect(
+        host=host,
+        database=database,
+        user=user,
+        password=password
+    )
     print("DEU BOM")
 
 except Exception as e:
