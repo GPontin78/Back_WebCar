@@ -4,7 +4,7 @@ set -eu
 echo "Iniciando Firebird..."
 
 : "${DB_HOST:=127.0.0.1}"
-: "${DB_PORT:=3050}"
+: "${DB_PORT:=3051}"
 : "${DB_NAME:=/app/WEBCAR.FDB}"
 : "${DB_USER:=sysdba}"
 : "${DB_PASSWORD:=masterkey}"
