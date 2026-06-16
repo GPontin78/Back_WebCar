@@ -1,10 +1,12 @@
 from flask import Flask
 import fdb
 import os
+import sys
 from flask_cors import CORS
 
 
 app = Flask(__name__)
+sys.modules.setdefault('main', sys.modules[__name__])
 app.config.from_pyfile('config.py')
 
 # Para funcionar com front publicado em HTTPS usando cookies/sessão
@@ -28,6 +30,7 @@ host = app.config['DB_HOST']
 database = app.config['DB_NAME']
 user = app.config['DB_USER']
 password = app.config['DB_PASSWORD']
+con = None
 
 try:
     con = fdb.connect(
@@ -39,7 +42,7 @@ try:
     print("DEU BOM")
 
 except Exception as e:
-    print(f"DEU RUIM : {e}")
+    raise RuntimeError(f"Erro ao conectar no banco Firebird '{database}': {e}") from e
 
 
 from usuario import *

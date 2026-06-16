@@ -27,6 +27,7 @@ htmlcov/
 # =========================
 # WebStorm / IntelliJ
 # =========================
+.vscode/
 .idea/
 *.iml
 
